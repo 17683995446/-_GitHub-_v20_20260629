@@ -524,20 +524,73 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 .toast.error { border-color: var(--danger); }
 .toast .toast-msg { font-size: 14px; }
 
+/* ===== Mobile Bottom Nav ===== */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: var(--bg2);
+  border-top: 1px solid var(--rule);
+  z-index: 200;
+  padding: 0;
+  justify-content: space-around;
+  align-items: center;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 4px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  transition: color 0.15s;
+}
+.mobile-nav-item .mn-icon { font-size: 20px; margin-bottom: 2px; }
+.mobile-nav-item.active { color: var(--accent); }
+
 /* ===== Responsive ===== */
 @media (max-width: 1024px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .flow-steps { grid-template-columns: repeat(2, 1fr); }
   .chart-row { grid-template-columns: 1fr; }
   .platform-grid { grid-template-columns: 1fr; }
+  .article-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 }
 @media (max-width: 768px) {
   .sidebar { display: none; }
-  .main { margin-left: 0; padding: 20px; max-width: 100%; }
-  .stat-grid { grid-template-columns: 1fr; }
+  .main { margin-left: 0; padding: 16px; max-width: 100%; padding-bottom: 70px; }
+  .mobile-nav { display: flex; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card .stat-num { font-size: 24px; }
+  .stat-card .stat-icon { font-size: 20px; margin-bottom: 8px; }
   .flow-steps { grid-template-columns: 1fr; }
-  .hero-section { padding: 32px 24px; }
-  .hero-section h2 { font-size: 24px; }
+  .hero-section { padding: 28px 20px; margin-bottom: 20px; }
+  .hero-section h2 { font-size: 22px; }
+  .hero-section p { font-size: 14px; }
+  .section-title { font-size: 17px; margin-bottom: 14px; }
+  .form-card { padding: 20px; }
+  .article-grid { grid-template-columns: 1fr; gap: 14px; }
+  .article-card { padding: 18px; }
+  .recent-list { grid-template-columns: 1fr; gap: 12px; }
+  .recent-item { padding: 16px; }
+  .chart-row { gap: 14px; }
+  .chart-card { padding: 16px; }
+  .chart-card h4 { font-size: 14px; }
+  .toggle-group { flex-wrap: wrap; overflow: visible; border-radius: 10px; }
+  .toggle-item { flex: 0 0 auto; padding: 8px 12px; font-size: 13px; border: 1px solid var(--rule); border-radius: 8px; margin: 2px; }
+  .toggle-item.active { border-color: var(--accent); }
+  .platform-grid { grid-template-columns: 1fr; }
+  .job-result { padding: 16px; }
+  .toast { left: 12px; right: 12px; min-width: auto; }
+}
+@media (max-width: 380px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .toggle-item { padding: 6px 10px; font-size: 12px; }
 }
 </style>
 </head>
@@ -853,6 +906,25 @@ docker-compose exec api alembic upgrade head
   </main>
 </div>
 
+<!-- ===== Mobile Bottom Nav ===== -->
+<nav class="mobile-nav" id="mobileNav">
+  <div class="mobile-nav-item active" onclick="showPage('overview', this)">
+    <span class="mn-icon">&#128202;</span>概览
+  </div>
+  <div class="mobile-nav-item" onclick="showPage('generate', this)">
+    <span class="mn-icon">&#9889;</span>生成
+  </div>
+  <div class="mobile-nav-item" onclick="showPage('articles', this)">
+    <span class="mn-icon">&#128240;</span>文章
+  </div>
+  <div class="mobile-nav-item" onclick="showPage('platforms', this)">
+    <span class="mn-icon">&#128241;</span>发布
+  </div>
+  <div class="mobile-nav-item" onclick="showPage('howto', this)">
+    <span class="mn-icon">&#128161;</span>指南
+  </div>
+</nav>
+
 <!-- ===== Toast ===== -->
 <div class="toast" id="toast">
   <span id="toastIcon"></span>
@@ -861,6 +933,6 @@ docker-compose exec api alembic upgrade head
 
 <script src="./_shared/js/echarts.min.js"></script>
 <script src="./_shared/js/howler.min.js"></script>
-<script src="assets/app.js?v=23"></script>
+<script src="assets/app.js?v=24"></script>
 </body>
 </html>

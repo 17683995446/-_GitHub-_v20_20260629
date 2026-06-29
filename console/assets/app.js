@@ -200,12 +200,19 @@
     document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
     document.getElementById('page-' + pageName).classList.add('active');
     document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+    document.querySelectorAll('.mobile-nav-item').forEach(function(n) { n.classList.remove('active'); });
 
-    if (el && el.classList && el.classList.contains('nav-item')) {
+    if (el && el.classList && (el.classList.contains('nav-item') || el.classList.contains('mobile-nav-item'))) {
       el.classList.add('active');
     } else {
       // Caller is not a nav-item (e.g. a button); find the matching nav item.
       document.querySelectorAll('.nav-item').forEach(function(n) {
+        var onclickAttr = n.getAttribute('onclick') || '';
+        if (onclickAttr.indexOf("'" + pageName + "'") !== -1) {
+          n.classList.add('active');
+        }
+      });
+      document.querySelectorAll('.mobile-nav-item').forEach(function(n) {
         var onclickAttr = n.getAttribute('onclick') || '';
         if (onclickAttr.indexOf("'" + pageName + "'") !== -1) {
           n.classList.add('active');
@@ -231,6 +238,9 @@
         preGenerateAudioForArticlesPage();
       }, 500);
     }
+
+    // 移动端：切换页面后滚动到顶部
+    window.scrollTo(0, 0);
   };
 
   // ===== Chip Selection (single-select) =====
