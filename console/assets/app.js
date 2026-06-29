@@ -548,7 +548,7 @@
           '<span>\u2B50 ' + escapeHtml(a.stars_today) + ' stars/day</span>' +
           '<span>\uD83D\uDD50 ' + escapeHtml(a.created_at) + '</span>' +
         '</div>' +
-        '<div style="margin-top:12px; display:flex; gap:8px; align-items:center;">' +
+        '<div style="margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">' +
           '<a href="' + escapeHtml(a.project_url) + '" target="_blank" rel="noopener" style="color:var(--accent2); font-size:13px; text-decoration:none;">\uD83D\uDD17 ' + escapeHtml(a.project_name) + '</a>' +
           '<button onclick="speakArticle(\'' + uid + '\', this)" style="background:var(--bg2); border:1px solid var(--accent); color:var(--accent); border-radius:6px; padding:4px 12px; cursor:pointer; font-size:13px; font-weight:600; display:flex; align-items:center; gap:4px;">' +
             '<span id="' + uid + '-icon">\u25B6</span> <span id="' + uid + '-label">\u6536\u542C</span>' +
