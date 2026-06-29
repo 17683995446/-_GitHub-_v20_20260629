@@ -2,7 +2,7 @@
 
 使用后台任务模式避免网关超时：
   POST /run  → 立即返回 job_id
-  GET  /status/{job_id} → 轮询任务状态
+  GET  /status/{job_id} → 轮询任务状态（支持实时进度+流式结果）
 """
 
 from __future__ import annotations
@@ -25,12 +25,16 @@ logger = get_logger(__name__)
 # ===== 内存任务存储 =====
 _jobs: dict[str, dict[str, Any]] = {}
 
+# 最大并发数：控制同时调用 LLM API 的数量
+MAX_CONCURRENCY = 5
+
 
 class QuickGenRequest(BaseModel):
     """快速生成请求。"""
 
     language: str = Field(default="python", description="编程语言")
-    max_results: int = Field(default=3, ge=1, le=10, description="生成数量")
+    max_results: int = Field(default=5, ge=1, le=30, description="生成数量（1-30）")
+    concurrency: int = Field(default=5, ge=1, le=10, description="并发数（1-10）")
 
 
 class QuickArticle(BaseModel):
@@ -61,9 +65,13 @@ class QuickGenStatusResponse(BaseModel):
     total: int = 0
     duration_sec: float = 0.0
     error: str = ""
+    # 实时进度字段
+    completed_count: int = 0
+    total_count: int = 0
+    current_projects: list[str] = []  # 正在处理的项目名
 
 
-async def _run_generation(job_id: str, language: str, max_results: int) -> None:
+async def _run_generation(job_id: str, language: str, max_results: int, concurrency: int) -> None:
     """后台执行生成任务。"""
     start = time.perf_counter()
     settings = get_settings()
@@ -89,6 +97,7 @@ async def _run_generation(job_id: str, language: str, max_results: int) -> None:
             return
 
         targets = repos[:max_results]
+        job["total_count"] = len(targets)
 
         # 2. 并发生成文章
         api_key = settings.llm_api_key
@@ -194,22 +203,49 @@ async def _run_generation(job_id: str, language: str, max_results: int) -> None:
                     model=model,
                 )
 
-        # 并发执行（最多3个同时）
-        semaphore = asyncio.Semaphore(3)
+        # 使用回调模式：每篇文章完成后立即写入 job，实现流式进度
+        effective_concurrency = min(concurrency, MAX_CONCURRENCY)
+        semaphore = asyncio.Semaphore(effective_concurrency)
+        articles_lock = asyncio.Lock()
 
-        async def gen_with_limit(repo: Any) -> QuickArticle:
+        async def gen_with_progress(repo: Any, idx: int) -> QuickArticle:
             async with semaphore:
-                return await gen_one(repo)
+                # 记录正在处理的项目
+                job["current_projects"].append(repo.full_name)
+                try:
+                    result = await gen_one(repo)
+                finally:
+                    # 完成后更新进度
+                    async with articles_lock:
+                        job["articles"].append(result.model_dump())
+                        job["completed_count"] += 1
+                        # 从当前处理列表中移除
+                        if repo.full_name in job["current_projects"]:
+                            job["current_projects"].remove(repo.full_name)
+                    logger.info(
+                        "quickgen_progress",
+                        job_id=job_id,
+                        completed=job["completed_count"],
+                        total=job["total_count"],
+                        project=repo.full_name,
+                    )
+                return result
 
-        articles = await asyncio.gather(*[gen_with_limit(r) for r in targets])
+        # 启动所有任务（通过信号量控制并发）
+        tasks = [gen_with_progress(r, i) for i, r in enumerate(targets)]
+        await asyncio.gather(*tasks)
+
+        # 收集最终结果（按原始顺序排序）
+        final_articles = job["articles"]
 
         duration = time.perf_counter() - start
-        logger.info("quickgen_done", job_id=job_id, total=len(articles), duration=round(duration, 2))
+        logger.info("quickgen_done", job_id=job_id, total=len(final_articles), duration=round(duration, 2))
 
         job["status"] = "completed"
-        job["articles"] = [a.model_dump() for a in articles]
-        job["total"] = len(articles)
+        job["articles"] = final_articles
+        job["total"] = len(final_articles)
         job["duration_sec"] = round(duration, 2)
+        job["current_projects"] = []
 
     except Exception as e:
         logger.error("quickgen_failed", job_id=job_id, error=str(e))
@@ -227,20 +263,29 @@ async def quick_generate(request: QuickGenRequest) -> QuickGenStartResponse:
         "total": 0,
         "duration_sec": 0.0,
         "error": "",
+        "completed_count": 0,
+        "total_count": 0,
+        "current_projects": [],
     }
 
     # 启动后台任务
     asyncio.create_task(
-        _run_generation(job_id, request.language, request.max_results)
+        _run_generation(job_id, request.language, request.max_results, request.concurrency)
     )
 
-    logger.info("quickgen_started", job_id=job_id, language=request.language, max=request.max_results)
+    logger.info(
+        "quickgen_started",
+        job_id=job_id,
+        language=request.language,
+        max=request.max_results,
+        concurrency=request.concurrency,
+    )
     return QuickGenStartResponse(job_id=job_id, status="pending")
 
 
 @router.get("/status/{job_id}", response_model=QuickGenStatusResponse)
 async def quickgen_status(job_id: str) -> QuickGenStatusResponse:
-    """查询任务状态。"""
+    """查询任务状态，支持实时进度和流式结果。"""
     if job_id not in _jobs:
         raise HTTPException(status_code=404, detail="任务不存在")
 
@@ -252,4 +297,7 @@ async def quickgen_status(job_id: str) -> QuickGenStatusResponse:
         total=job.get("total", 0),
         duration_sec=job.get("duration_sec", 0.0),
         error=job.get("error", ""),
+        completed_count=job.get("completed_count", 0),
+        total_count=job.get("total_count", 0),
+        current_projects=job.get("current_projects", []),
     )
