@@ -3,6 +3,23 @@
   var accent = style.getPropertyValue('--accent').trim();
   var accent2 = style.getPropertyValue('--accent2').trim();
   var accent3 = style.getPropertyValue('--accent3').trim();
+
+  // ===== 可配置的 API 服务器地址（用于 APK 模式） =====
+  var API_BASE = '';
+  try {
+    API_BASE = localStorage.getItem('gitcast_server_url') || '';
+  } catch(e) {}
+  function apiUrl(path) {
+    if (API_BASE && path.indexOf('http') !== 0) {
+      return API_BASE.replace(/\/$/, '') + path;
+    }
+    return path;
+  }
+  window.gitcastSetServer = function(url) {
+    API_BASE = url || '';
+    try { localStorage.setItem('gitcast_server_url', API_BASE); } catch(e) {}
+  };
+  window.gitcastGetServer = function() { return API_BASE; };
   var ink = style.getPropertyValue('--ink').trim();
   var muted = style.getPropertyValue('--muted').trim();
   var rule = style.getPropertyValue('--rule').trim();
@@ -378,7 +395,7 @@
     details.innerHTML = '<span style="color:var(--accent2);">⏳ 正在发现 GitHub 热门项目...</span>';
 
     // 1. 提交任务
-    fetch('/api/v1/quickgen/run', {
+    fetch(apiUrl('/api/v1/quickgen/run'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -423,7 +440,7 @@
     if (pollTimer) clearInterval(pollTimer);
 
     pollTimer = setInterval(function() {
-      fetch('/api/v1/quickgen/status/' + jobId)
+      fetch(apiUrl('/api/v1/quickgen/status/' + jobId))
         .then(function(resp) { return resp.json(); })
         .then(function(data) {
           pollCount++;
@@ -743,7 +760,7 @@
       updateAudioButton(textId, 'generating');
     }
 
-    fetch('/api/v1/tts/generate', {
+    fetch(apiUrl('/api/v1/tts/generate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text, voice: voice, speed: speed })
@@ -1141,7 +1158,7 @@
     setBtnState(btn, 'loading');
     if (timeEl) timeEl.textContent = '正在生成语音...';
 
-    fetch('/api/v1/tts/generate', {
+    fetch(apiUrl('/api/v1/tts/generate'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1365,7 +1382,7 @@
   // the undefined showJobResult. It was never called anywhere.
 
   // ===== Check API Status =====
-  fetch('/api/v1/health')
+  fetch(apiUrl('/api/v1/health'))
     .then(function(r) {
       if (r.ok) {
         document.getElementById('apiStatusDot').classList.remove('off');
@@ -1376,5 +1393,98 @@
       document.getElementById('apiStatusDot').classList.add('off');
       document.getElementById('apiStatusText').textContent = 'API 未连接';
     });
+
+  // ===== PWA: Service Worker 注册 + 安装提示 =====
+  var deferredPrompt = null;
+
+  // ===== APK 模式：检测是否为独立应用 =====
+  var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (isStandalone) {
+    // APK/PWA 独立模式：显示服务器设置
+    var card = document.getElementById('serverConfigCard');
+    if (card) card.style.display = 'block';
+    var input = document.getElementById('serverUrlInput');
+    if (input) input.value = API_BASE || '';
+  }
+
+  window.saveServerUrl = function() {
+    var url = document.getElementById('serverUrlInput').value.trim();
+    gitcastSetServer(url);
+    document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent);">✅ 服务器地址已保存: ' + escapeHtml(url) + '</span>';
+    showToast('服务器地址已保存', 'success');
+    // 重新检查 API 状态
+    setTimeout(function() { checkApiStatus(); }, 500);
+  };
+
+  window.testServerUrl = function() {
+    var url = document.getElementById('serverUrlInput').value.trim();
+    if (!url) {
+      document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--danger);">❌ 请输入服务器地址</span>';
+      return;
+    }
+    document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent2);">⏳ 正在测试连接...</span>';
+    gitcastSetServer(url);
+    fetch(apiUrl('/api/v1/health'))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.status === 'ok') {
+          document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent);">✅ 连接成功！GitCast API 正常运行</span>';
+          showToast('服务器连接成功！', 'success');
+        } else {
+          document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--warn);">⚠️ 连接成功但返回异常: ' + escapeHtml(JSON.stringify(data)) + '</span>';
+        }
+      })
+      .catch(function(err) {
+        document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--danger);">❌ 连接失败: ' + escapeHtml(err.message) + '</span>';
+      });
+  };
+
+  // 注册 Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(function(reg) {
+      console.log('[PWA] Service Worker 注册成功:', reg.scope);
+    }).catch(function(err) {
+      console.warn('[PWA] Service Worker 注册失败:', err);
+    });
+  }
+
+  // 监听 beforeinstallprompt 事件（Android Chrome）
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    // 显示安装横幅
+    var banner = document.getElementById('pwaInstallBanner');
+    if (banner) {
+      banner.style.display = 'flex';
+    }
+  });
+
+  // 安装 PWA
+  window.installPWA = function() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function(choice) {
+        if (choice.outcome === 'accepted') {
+          showToast('GitCast 已安装到主屏幕', 'success');
+        }
+        deferredPrompt = null;
+        document.getElementById('pwaInstallBanner').style.display = 'none';
+      });
+    } else {
+      // iOS 不支持 beforeinstallprompt，引导用户手动添加
+      var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS) {
+        showToast('请点击 Safari 分享按钮 →「添加到主屏幕」', 'info');
+      } else {
+        showToast('请点击浏览器菜单 →「添加到主屏幕」或「安装应用」', 'info');
+      }
+    }
+  };
+
+  // 监听 appinstalled 事件
+  window.addEventListener('appinstalled', function() {
+    document.getElementById('pwaInstallBanner').style.display = 'none';
+    showToast('GitCast 已安装成功！', 'success');
+  });
 
 })();
