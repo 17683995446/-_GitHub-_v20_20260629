@@ -1,68 +1,68 @@
-# GitCast
+# GitCast · GitHub 项目播客工厂
 
-> 自动发现 GitHub 高价值项目 → 生成通俗中文解读 → 转化为高质量音频 → 多平台分发
+> 自动发现 GitHub 热门项目 → AI 深度解读 → TTS 播客合成 → 一键发布到全平台
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+**版本**：v22 · 2026-06-29
 
-## 快速开始
+## 🎬 在线预览
+
+可视化项目介绍网站已部署到 GitHub Pages：
+
+**🔗 https://17683995446.github.io/-_GitHub-_v20_20260629/preview/**
+
+> 键盘控制：`→` / `Space` / `Enter` 下一张，`←` 上一张，`F` 全屏
+
+## ✨ 核心亮点
+
+| 能力 | 详情 |
+|------|------|
+| 🔍 **发现项目** | GitHub Trending + Search API 分页，最高 1000 个仓库 |
+| 🤖 **AI 写作** | 硅基流动 Qwen-72B，800-1200 字/篇，深度解读 |
+| 🎤 **TTS 播客** | CosyVoice2 8 种音色，FFmpeg 响度标准化 |
+| ⚡ **批量生成** | 1 串行 / 2 / 5 / 8 / 10 路并发可调 |
+| 📊 **实时进度** | 完成度百分比 + 当前处理项目名实时显示 |
+| 🔁 **连续播放** | 当前文章播完自动播放下一篇 |
+| 💾 **本地持久化** | 历史文章 + 偏好设置保存到 localStorage |
+
+## 📦 项目结构
+
+```
+.
+├── api/                # FastAPI 后端（批量生成、TTS、任务调度）
+├── services/           # 业务服务（GitHub 发现、内容生成）
+├── shared/             # 配置、日志、数据库连接
+├── console/            # GitCast 控制台前端（生产用）
+├── preview/            # 项目可视化介绍站点（GitHub Pages）
+└── docs/               # 项目架构文档
+```
+
+## 🏗 技术栈
+
+- **后端**：FastAPI + asyncpg + httpx
+- **AI**：SiliconFlow Qwen-72B / CosyVoice2 TTS
+- **前端**：原生 JavaScript + Howler.js + ECharts
+- **基础设施**：FFmpeg · Redis · PostgreSQL · Docker
+
+## 🚀 快速开始
 
 ```bash
-# 安装依赖
-make dev
+# 后端
+cd api && pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
 
-# 复制环境变量模板
-cp .env.example .env
-# 编辑 .env 填入真实密钥
-
-# 运行
-make run
+# 前端控制台
+cd console && python -m http.server 8080
 ```
 
-## 架构
+## 📜 版本演进
 
-```
-[发现层]  GitHub Search API + Trending 爬虫 + starpulse 增长监控
-    ↓
-[文档层]  Repomix 打包仓库 → DeepSeek/Qwen LLM 生成通俗文章
-    ↓
-[音频层]  CosyVoice2 自托管 / Azure TTS 云端
-    ↓
-[发布层]  喜马拉雅 / 小宇宙 / B站 / 微信公众号
-    ↓
-[编排层]  n8n 自托管 + GitHub Actions 定时触发
-```
+| 版本 | 关键能力 | 批量上限 | 并发 |
+|------|----------|----------|------|
+| v19 | 音量增强（服务端 loudnorm） | 10 | 3 |
+| v20 | 连续播放 | 10 | 3 |
+| v21 | 实时进度 + 流式结果 | 30 | 5 |
+| **v22** | **1000 篇上限 + 串行模式** | **1000** | **1-10** |
 
-## 技术栈
+---
 
-| 层 | 选型 |
-|---|---|
-| 后端 | Python 3.11+ / FastAPI / SQLAlchemy 2.0 |
-| 数据库 | PostgreSQL 16 / Redis 7 |
-| LLM | Qwen2.5-72B (SiliconFlow) |
-| TTS | Azure TTS / CosyVoice2 |
-| 编排 | n8n / GitHub Actions |
-| 部署 | Docker / Docker Compose |
-
-## 项目结构
-
-```
-gitcast/
-├── services/          # 业务服务层
-│   ├── discovery/     # GitHub 项目发现
-│   ├── generator/     # LLM 文档生成
-│   ├── tts/           # TTS 音频合成
-│   ├── publisher/     # 多平台发布
-│   └── api/           # Web 后台 API
-├── models/            # 数据模型
-├── shared/            # 公共库（配置、日志、错误）
-├── prompts/           # LLM Prompt 模板
-├── workflows/         # n8n 工作流定义
-├── tests/             # 测试
-├── deploy/            # 部署配置
-└── docs/              # 文档
-```
-
-## License
-
-MIT
+Made with ❤️ by 开发者工具 · 2026
