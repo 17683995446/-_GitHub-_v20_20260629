@@ -288,7 +288,7 @@
     var lang = selectedChip.dataset.lang;
     var apiLang = lang === 'all' ? '' : lang;
 
-    var maxResults = 5;
+    var maxResults = 10;
     document.querySelectorAll('#maxResultsGroup .toggle-item').forEach(function(i) {
       if (i.classList.contains('active')) maxResults = parseInt(i.dataset.value);
     });

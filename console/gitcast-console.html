@@ -684,22 +684,24 @@ textarea.form-control { resize: vertical; min-height: 80px; }
         </div>
 
         <div class="form-group">
-          <label>发现数量 <span class="hint">每次最多发现多少个项目（最高30）</span></label>
+          <label>发现数量 <span class="hint">每次最多发现多少个项目（最高1000，支持全天播放）</span></label>
           <div class="toggle-group" id="maxResultsGroup" style="flex-wrap:wrap;">
-            <div class="toggle-item" data-value="3">3 个</div>
-            <div class="toggle-item active" data-value="5">5 个</div>
-            <div class="toggle-item" data-value="8">8 个</div>
-            <div class="toggle-item" data-value="10">10 个</div>
-            <div class="toggle-item" data-value="15">15 个</div>
-            <div class="toggle-item" data-value="20">20 个</div>
+            <div class="toggle-item" data-value="5">5 个</div>
+            <div class="toggle-item active" data-value="10">10 个</div>
             <div class="toggle-item" data-value="30">30 个</div>
+            <div class="toggle-item" data-value="50">50 个</div>
+            <div class="toggle-item" data-value="100">100 个</div>
+            <div class="toggle-item" data-value="200">200 个</div>
+            <div class="toggle-item" data-value="500">500 个</div>
+            <div class="toggle-item" data-value="1000">1000 个</div>
           </div>
         </div>
 
         <div class="form-group">
-          <label>并发数 <span class="hint">同时生成几篇文章（越高越快，但对API压力越大）</span></label>
-          <div class="toggle-group" id="concurrencyGroup">
-            <div class="toggle-item" data-value="3">3 路</div>
+          <label>并发数 <span class="hint">同时生成几篇文章（1=串行，适合长时间任务；越高越快但API压力越大）</span></label>
+          <div class="toggle-group" id="concurrencyGroup" style="flex-wrap:wrap;">
+            <div class="toggle-item" data-value="1">1 路 (串行)</div>
+            <div class="toggle-item" data-value="2">2 路</div>
             <div class="toggle-item active" data-value="5">5 路</div>
             <div class="toggle-item" data-value="8">8 路</div>
             <div class="toggle-item" data-value="10">10 路</div>
@@ -858,6 +860,6 @@ docker-compose exec api alembic upgrade head
 
 <script src="./_shared/js/echarts.min.js"></script>
 <script src="./_shared/js/howler.min.js"></script>
-<script src="assets/app.js?v=21"></script>
+<script src="assets/app.js?v=22"></script>
 </body>
 </html>

@@ -3,6 +3,8 @@
 使用后台任务模式避免网关超时：
   POST /run  → 立即返回 job_id
   GET  /status/{job_id} → 轮询任务状态（支持实时进度+流式结果）
+
+支持大批量生成（最高1000篇），通过 GitHub Search API 分页获取项目。
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -25,16 +28,27 @@ logger = get_logger(__name__)
 # ===== 内存任务存储 =====
 _jobs: dict[str, dict[str, Any]] = {}
 
-# 最大并发数：控制同时调用 LLM API 的数量
-MAX_CONCURRENCY = 5
+# 最大并发数上限
+MAX_CONCURRENCY = 10
+
+
+@dataclass
+class SimpleRepo:
+    """简化的仓库信息，兼容 TrendingRepo 和 Search API 结果。"""
+
+    full_name: str
+    description: str
+    stars_today: int
+    repo_url: str
+    language: str = ""
 
 
 class QuickGenRequest(BaseModel):
     """快速生成请求。"""
 
     language: str = Field(default="python", description="编程语言")
-    max_results: int = Field(default=5, ge=1, le=30, description="生成数量（1-30）")
-    concurrency: int = Field(default=5, ge=1, le=10, description="并发数（1-10）")
+    max_results: int = Field(default=5, ge=1, le=1000, description="生成数量（1-1000）")
+    concurrency: int = Field(default=5, ge=1, le=10, description="并发数（1-10，1为串行）")
 
 
 class QuickArticle(BaseModel):
@@ -71,6 +85,157 @@ class QuickGenStatusResponse(BaseModel):
     current_projects: list[str] = []  # 正在处理的项目名
 
 
+async def _discover_repos(language: str, max_results: int) -> list[SimpleRepo]:
+    """发现 GitHub 项目。
+
+    策略：
+    - max_results <= 25: 使用 Trending（速度快，质量高）
+    - max_results > 25: 使用 GitHub Search API 分页获取
+    - 混合模式：先取 Trending，不够再从 Search API 补充
+    """
+    repos: list[SimpleRepo] = []
+    seen: set[str] = set()
+
+    # 1. 先从 Trending 获取（不需要 token）
+    from services.discovery.trending_scraper import TrendingScraper
+
+    scraper = TrendingScraper()
+    try:
+        # 获取多个时间范围的 trending
+        for since in ("daily", "weekly"):
+            if len(repos) >= max_results:
+                break
+            try:
+                trending_repos = await scraper.fetch_trending(language=language, since=since)
+                for r in trending_repos:
+                    if r.full_name not in seen:
+                        seen.add(r.full_name)
+                        repos.append(SimpleRepo(
+                            full_name=r.full_name,
+                            description=r.description,
+                            stars_today=r.stars_today,
+                            repo_url=r.repo_url,
+                            language=r.language,
+                        ))
+                        if len(repos) >= max_results:
+                            break
+            except Exception as e:
+                logger.warning("trending_fetch_failed", since=since, error=str(e))
+    finally:
+        await scraper.close()
+
+    logger.info("discover_trending", count=len(repos), needed=max_results)
+
+    # 2. 如果不够，从 GitHub Search API 补充
+    if len(repos) < max_results:
+        remaining = max_results - len(repos)
+        search_repos = await _search_repos_paginated(language, remaining, seen)
+        repos.extend(search_repos)
+        logger.info("discover_search_api", count=len(search_repos), total=len(repos))
+
+    return repos[:max_results]
+
+
+async def _search_repos_paginated(
+    language: str, count: int, seen: set[str]
+) -> list[SimpleRepo]:
+    """通过 GitHub Search API 分页获取仓库。
+
+    每页 100 个，最多 10 页 = 1000 个。
+    未认证请求限流：10 次/分钟；认证后 5000 次/小时。
+    """
+    repos: list[SimpleRepo] = []
+    settings = get_settings()
+    gh_token = settings.github_token
+
+    headers: dict[str, str] = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "GitCast/1.0",
+    }
+    if gh_token:
+        headers["Authorization"] = f"token {gh_token}"
+
+    # 构建搜索查询
+    lang_filter = f"language:{language}" if language else "stars:>100"
+    # 按星数排序，只取最近一年有更新的
+    query = f"{lang_filter} stars:>50 pushed:>2025-01-01"
+
+    per_page = min(100, count)
+    pages_needed = (count + per_page - 1) // per_page
+    pages_needed = min(pages_needed, 10)  # GitHub 限制最多 10 页
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        for page in range(1, pages_needed + 1):
+            if len(repos) >= count:
+                break
+            try:
+                resp = await client.get(
+                    "https://api.github.com/search/repositories",
+                    headers=headers,
+                    params={
+                        "q": query,
+                        "sort": "stars",
+                        "order": "desc",
+                        "per_page": per_page,
+                        "page": page,
+                    },
+                )
+                if resp.status_code == 403:
+                    # 限流，等待后重试
+                    logger.warning("github_rate_limited", page=page)
+                    await asyncio.sleep(60)
+                    continue
+                if resp.status_code != 200:
+                    logger.warning("search_api_error", status=resp.status_code, page=page)
+                    break
+
+                data = resp.json()
+                items = data.get("items", [])
+                if not items:
+                    break
+
+                for item in items:
+                    full_name = item.get("full_name", "")
+                    if not full_name or full_name in seen:
+                        continue
+                    seen.add(full_name)
+                    repos.append(SimpleRepo(
+                        full_name=full_name,
+                        description=item.get("description", "") or "",
+                        stars_today=item.get("stargazers_count", 0),
+                        repo_url=item.get("html_url", f"https://github.com/{full_name}"),
+                        language=item.get("language", "") or "",
+                    ))
+                    if len(repos) >= count:
+                        break
+
+                logger.info("search_api_page", page=page, got=len(items), total_repos=len(repos))
+
+            except Exception as e:
+                logger.warning("search_api_failed", page=page, error=str(e))
+                break
+
+    return repos
+
+
+async def _fetch_readme(client: httpx.AsyncClient, full_name: str) -> str:
+    """从 GitHub API 获取 README 内容，截取前 3000 字符作为上下文。"""
+    try:
+        resp = await client.get(
+            f"https://api.github.com/repos/{full_name}/readme",
+            headers={
+                "Accept": "application/vnd.github.v3.raw",
+                "User-Agent": "GitCast/1.0",
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.text[:3000]
+    except Exception:
+        pass
+    return ""
+
+
 async def _run_generation(job_id: str, language: str, max_results: int, concurrency: int) -> None:
     """后台执行生成任务。"""
     start = time.perf_counter()
@@ -79,15 +244,12 @@ async def _run_generation(job_id: str, language: str, max_results: int, concurre
     job["status"] = "running"
 
     try:
-        # 1. 发现热门项目
-        from services.discovery.trending_scraper import TrendingScraper
+        # 1. 发现项目（Trending + Search API）
+        job["current_projects"] = ["正在发现 GitHub 项目..."]
+        repos = await _discover_repos(language, max_results)
+        job["current_projects"] = []
 
-        scraper = TrendingScraper()
-        try:
-            repos = await scraper.fetch_trending(language=language, since="daily")
-            logger.info("quickgen_trending", job_id=job_id, count=len(repos))
-        finally:
-            await scraper.close()
+        logger.info("quickgen_discover_done", job_id=job_id, count=len(repos))
 
         if not repos:
             job["status"] = "completed"
@@ -99,35 +261,17 @@ async def _run_generation(job_id: str, language: str, max_results: int, concurre
         targets = repos[:max_results]
         job["total_count"] = len(targets)
 
-        # 2. 并发生成文章
+        # 2. 生成文章
         api_key = settings.llm_api_key
         api_base = settings.llm_api_base
         model = settings.llm_model
 
-        async def fetch_readme(client: httpx.AsyncClient, full_name: str) -> str:
-            """从 GitHub API 获取 README 内容，截取前 3000 字符作为上下文。"""
-            try:
-                resp = await client.get(
-                    f"https://api.github.com/repos/{full_name}/readme",
-                    headers={
-                        "Accept": "application/vnd.github.v3.raw",
-                        "User-Agent": "GitCast/1.0",
-                    },
-                    timeout=10,
-                )
-                if resp.status_code == 200:
-                    text = resp.text[:3000]
-                    return text
-            except Exception:
-                pass
-            return ""
-
-        async def gen_one(repo: Any) -> QuickArticle:
+        async def gen_one(repo: SimpleRepo) -> QuickArticle:
             # 获取 README 丰富上下文
             readme_content = ""
             try:
                 async with httpx.AsyncClient(timeout=15) as gh_client:
-                    readme_content = await fetch_readme(gh_client, repo.full_name)
+                    readme_content = await _fetch_readme(gh_client, repo.full_name)
             except Exception:
                 pass
 
@@ -208,7 +352,7 @@ async def _run_generation(job_id: str, language: str, max_results: int, concurre
         semaphore = asyncio.Semaphore(effective_concurrency)
         articles_lock = asyncio.Lock()
 
-        async def gen_with_progress(repo: Any, idx: int) -> QuickArticle:
+        async def gen_with_progress(repo: SimpleRepo, idx: int) -> QuickArticle:
             async with semaphore:
                 # 记录正在处理的项目
                 job["current_projects"].append(repo.full_name)
@@ -235,7 +379,7 @@ async def _run_generation(job_id: str, language: str, max_results: int, concurre
         tasks = [gen_with_progress(r, i) for i, r in enumerate(targets)]
         await asyncio.gather(*tasks)
 
-        # 收集最终结果（按原始顺序排序）
+        # 收集最终结果
         final_articles = job["articles"]
 
         duration = time.perf_counter() - start
