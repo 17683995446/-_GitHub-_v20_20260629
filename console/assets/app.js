@@ -81,6 +81,7 @@
     updateStats();
     renderRecentPodcasts();
     renderArticlesPage();
+    updateChartsFromArticles();
     showToast('历史记录已清除', 'success');
   };
 
@@ -129,7 +130,7 @@
   var trendChart = echarts.init(document.getElementById('chart-trend'), null, { renderer: 'svg' });
   trendChart.setOption({
     animation: false,
-    tooltip: { trigger: 'axis', backgroundColor: bg2, borderColor: rule, textStyle: { color: ink }, appendToBody: true },
+    tooltip: { trigger: 'axis', backgroundColor: bg2, borderColor: rule, textStyle: { color: ink } },
     grid: { left: 40, right: 20, top: 20, bottom: 30 },
     xAxis: {
       type: 'category',
@@ -145,7 +146,7 @@
     },
     series: [{
       type: 'line',
-      data: [3, 7, 5, 12, 8, 6, 5],
+      data: [0, 0, 0, 0, 0, 0, 0],
       smooth: true,
       symbol: 'circle',
       symbolSize: 8,
@@ -166,7 +167,7 @@
   var langChart = echarts.init(document.getElementById('chart-lang'), null, { renderer: 'svg' });
   langChart.setOption({
     animation: false,
-    tooltip: { trigger: 'item', backgroundColor: bg2, borderColor: rule, textStyle: { color: ink }, appendToBody: true },
+    tooltip: { trigger: 'item', backgroundColor: bg2, borderColor: rule, textStyle: { color: ink } },
     legend: {
       bottom: 0,
       textStyle: { color: muted, fontSize: 11 },
@@ -179,14 +180,60 @@
       label: { color: ink, fontSize: 12 },
       labelLine: { lineStyle: { color: rule } },
       data: [
-        { value: 18, name: 'Python', itemStyle: { color: accent } },
-        { value: 12, name: 'TypeScript', itemStyle: { color: accent2 } },
-        { value: 10, name: 'Rust', itemStyle: { color: accent3 } },
-        { value: 8, name: 'Go', itemStyle: { color: '#f0883e' } },
-        { value: 8, name: '其他', itemStyle: { color: muted } }
+        { value: 0, name: 'Python', itemStyle: { color: accent } },
+        { value: 0, name: 'TypeScript', itemStyle: { color: accent2 } },
+        { value: 0, name: 'Rust', itemStyle: { color: accent3 } },
+        { value: 0, name: 'Go', itemStyle: { color: '#f0883e' } },
+        { value: 0, name: '其他', itemStyle: { color: muted } }
       ]
     }]
   });
+
+  // ===== 根据实际文章数据更新图表 =====
+  function updateChartsFromArticles() {
+    // 语言分布
+    var langCount = { Python: 0, TypeScript: 0, Rust: 0, Go: 0, '其他': 0 };
+    var langMap = { python: 'Python', typescript: 'TypeScript', rust: 'Rust', go: 'Go', javascript: '其他', java: '其他', 'c++': '其他', '': '其他' };
+    generatedArticles.forEach(function(a) {
+      var langKey = langMap[(a.language || '').toLowerCase()] || '其他';
+      langCount[langKey]++;
+    });
+    langChart.setOption({
+      series: [{
+        data: [
+          { value: langCount.Python, name: 'Python', itemStyle: { color: accent } },
+          { value: langCount.TypeScript, name: 'TypeScript', itemStyle: { color: accent2 } },
+          { value: langCount.Rust, name: 'Rust', itemStyle: { color: accent3 } },
+          { value: langCount.Go, name: 'Go', itemStyle: { color: '#f0883e' } },
+          { value: langCount['其他'], name: '其他', itemStyle: { color: muted } }
+        ]
+      }]
+    });
+
+    // 趋势图：按日期统计最近7天
+    var today = new Date();
+    var dates = [];
+    var counts = [];
+    for (var i = 6; i >= 0; i--) {
+      var d = new Date(today);
+      d.setDate(d.getDate() - i);
+      var dateStr = (d.getMonth() + 1) + '/' + d.getDate();
+      dates.push(dateStr);
+      var count = 0;
+      generatedArticles.forEach(function(a) {
+        if (a.created_at) {
+          var ad = new Date(a.created_at);
+          if (ad.getMonth() === d.getMonth() && ad.getDate() === d.getDate()) count++;
+        }
+      });
+      counts.push(count);
+    }
+    trendChart.setOption({
+      xAxis: { data: dates },
+      series: [{ data: counts }]
+    });
+  }
+  updateChartsFromArticles();
 
   window.addEventListener('resize', function() {
     trendChart.resize();
@@ -229,6 +276,12 @@
       }, 50);
       renderRecentPodcasts();
     }
+
+    // 切换页面时隐藏所有 ECharts tooltip，防止残留
+    try {
+      trendChart.dispatchAction({ type: 'hideTip' });
+      langChart.dispatchAction({ type: 'hideTip' });
+    } catch(e) {}
 
     // Bug fix #5: Render articles page when switching to it.
     if (pageName === 'articles') {
@@ -459,6 +512,7 @@
             updateStats();
             renderRecentPodcasts();
             saveToStorage();
+            updateChartsFromArticles();
 
             showQuickResults(data);
             showToast('成功生成 ' + data.total + ' 篇文章！耗时 ' + data.duration_sec + ' 秒', 'success');
