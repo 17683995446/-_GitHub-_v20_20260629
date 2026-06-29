@@ -1,0 +1,135 @@
+# GitCast Docker Compose — 完整开发/生产环境
+# 包含：应用 + PostgreSQL + Redis + n8n
+
+version: "3.8"
+
+services:
+  # ===== GitCast API 服务 =====
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gitcast-api
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+      - ./prompts:/app/prompts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+  # ===== PostgreSQL 16 =====
+  postgres:
+    image: postgres:16-alpine
+    container_name: gitcast-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gitcast}
+      POSTGRES_USER: ${POSTGRES_USER:-gitcast}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gitcast}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gitcast}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+  # ===== Redis 7 =====
+  redis:
+    image: redis:7-alpine
+    container_name: gitcast-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+  # ===== n8n 编排引擎 =====
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: gitcast-n8n
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-changeme}
+      N8N_HOST: ${N8N_HOST:-0.0.0.0}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-default-encryption-key-change-me}
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./n8n:/shared:ro
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+  # ===== Prometheus 监控 =====
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: gitcast-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+  # ===== Grafana 可视化 =====
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gitcast-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - gitcast-net
+
+volumes:
+  postgres-data:
+  redis-data:
+  n8n-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  gitcast-net:
+    driver: bridge

@@ -1,0 +1,147 @@
+{
+  "name": "GitCast Daily Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Every Day 9AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GITCAST_API_URL }}/api/v1/pipeline/run/sync",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "max_results",
+              "value": "5"
+            },
+            {
+              "name": "languages",
+              "value": "[\"python\", \"typescript\", \"rust\", \"go\"]"
+            },
+            {
+              "name": "trending_since",
+              "value": "daily"
+            },
+            {
+              "name": "skip_existing",
+              "value": "true"
+            },
+            {
+              "name": "auto_approve",
+              "value": "true"
+            },
+            {
+              "name": "generate_audio",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "name": "Trigger Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equals",
+              "value2": "completed"
+            }
+          ]
+        }
+      },
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.ALERT_CHAT_ID }}",
+        "text": "=GitCast 管线完成\n成功: {{ $json.succeeded }}\n失败: {{ $json.failed }}\n跳过: {{ $json.skipped }}",
+        "additionalFields": {}
+      },
+      "name": "Notify Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [850, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $env.ALERT_CHAT_ID }}",
+        "text": "=GitCast 管线失败\n错误: {{ $json.error }}",
+        "additionalFields": {}
+      },
+      "name": "Notify Failure",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [850, 400]
+    }
+  ],
+  "connections": {
+    "Every Day 9AM": {
+      "main": [
+        [
+          {
+            "node": "Trigger Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Notify Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

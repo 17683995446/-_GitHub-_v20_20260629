@@ -1,0 +1,64 @@
+name: GitCast Daily Pipeline
+
+on:
+  schedule:
+    # 每天北京时间 09:00 (UTC 01:00) 执行
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 支持手动触发
+
+env:
+  GITCAST_API_URL: ${{ secrets.GITCAST_API_URL }}
+  PIPELINE_API_KEY: ${{ secrets.PIPELINE_API_KEY }}
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Trigger GitCast Pipeline
+        run: |
+          echo "🚀 触发 GitCast 管线..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${GITCAST_API_URL}/api/v1/pipeline/run/sync" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${PIPELINE_API_KEY}" \
+            -d '{
+              "max_results": 5,
+              "languages": ["python", "typescript", "rust", "go"],
+              "trending_since": "daily",
+              "skip_existing": true,
+              "auto_approve": true,
+              "generate_audio": true
+            }')
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ 管线触发失败"
+            exit 1
+          fi
+
+          # 解析结果
+          SUCCEEDED=$(echo "$BODY" | jq -r '.succeeded // 0')
+          FAILED=$(echo "$BODY" | jq -r '.failed // 0')
+          SKIPPED=$(echo "$BODY" | jq -r '.skipped // 0')
+
+          echo "📊 管线结果: 成功=$SUCCEEDED, 失败=$FAILED, 跳过=$SKIPPED"
+
+          if [ "$FAILED" -gt "0" ]; then
+            echo "⚠️ 存在失败项目"
+            exit 1
+          fi
+
+          echo "✅ 管线执行成功"
+
+      - name: Send notification on failure
+        if: failure()
+        run: |
+          echo "❌ GitCast 管线执行失败，请检查日志"
+          # 可扩展为发送到 Slack/钉钉/企业微信
+          exit 1

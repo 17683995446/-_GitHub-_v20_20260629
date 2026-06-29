@@ -1,0 +1,101 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "GitCast Overview",
+    "tags": ["gitcast"],
+    "timezone": "browser",
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "HTTP 请求速率 (req/s)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(gitcast_http_requests_total[1m])",
+            "legendFormat": "{{method}} {{endpoint}} {{status}}"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "API 响应时间 P95 (秒)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(gitcast_http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "P95 延迟"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "管线运行统计",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "increase(gitcast_pipeline_total[24h])",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "文章生成总数",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 6, "y": 8},
+        "targets": [
+          {
+            "expr": "gitcast_articles_generated_total",
+            "legendFormat": "文章总数"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "音频合成总数",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "gitcast_audio_synthesized_total",
+            "legendFormat": "{{engine}}"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "发布操作统计",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 8},
+        "targets": [
+          {
+            "expr": "increase(gitcast_publish_operations_total[24h])",
+            "legendFormat": "{{platform}} {{status}}"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "LLM Token 使用量",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14},
+        "targets": [
+          {
+            "expr": "rate(gitcast_llm_token_usage_total[5m])",
+            "legendFormat": "{{type}} tokens/s"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,64 @@
+# Prometheus 告警规则
+
+groups:
+  - name: gitcast-alerts
+    rules:
+      # API 服务宕机
+      - alert: GitCastAPIDown
+        expr: up{job="gitcast-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GitCast API 宕机"
+          description: "GitCast API 已宕机超过 2 分钟。"
+
+      # API 响应时间过高
+      - alert: GitCastAPIHighLatency
+        expr: histogram_quantile(0.95, rate(gitcast_http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 响应时间过高"
+          description: "95 分位响应时间超过 2 秒，持续 5 分钟。"
+
+      # 管线失败率过高
+      - alert: PipelineHighFailureRate
+        expr: rate(gitcast_pipeline_failed_total[1h]) / rate(gitcast_pipeline_total[1h]) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "管线失败率过高"
+          description: "过去 1 小时管线失败率超过 30%。"
+
+      # PostgreSQL 连接数过高
+      - alert: PostgresHighConnections
+        expr: pg_stat_database_numbackends > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL 连接数过高"
+          description: "数据库连接数超过 80，可能需要扩容。"
+
+      # Redis 内存使用过高
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis 内存使用过高"
+          description: "Redis 内存使用超过 90%。"
+
+      # 磁盘空间不足
+      - alert: DiskSpaceLow
+        expr: 1 - node_filesystem_avail_bytes / node_filesystem_size_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "磁盘空间不足"
+          description: "磁盘使用率超过 85%。"
