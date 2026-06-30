@@ -912,16 +912,57 @@ docker-compose exec api alembic upgrade head
       </div>
     </div>
 
-    <!-- ===== 服务器设置（APK 模式用） ===== -->
-    <div class="form-card" id="serverConfigCard" style="display:none; margin-top:24px;">
-      <h3 style="font-family:'InstrumentSans',sans-serif; font-size:18px; font-weight:700; margin-bottom:16px;">&#9881;&#65039; 服务器设置</h3>
-      <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">APK 模式下需要指定后端服务器地址（例如 http://192.168.1.100:8000）</p>
-      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <input type="text" id="serverUrlInput" class="form-control" placeholder="http://电脑IP:8000" style="flex:1; min-width:200px;">
-        <button class="btn btn-primary" onclick="saveServerUrl()">保存</button>
-        <button class="btn btn-secondary" onclick="testServerUrl()">测试连接</button>
+    <!-- ===== API Key 配置（自包含模式） ===== -->
+    <div class="form-card" id="apiKeyConfigCard" style="margin-top:24px;">
+      <h3 style="font-family:'InstrumentSans',sans-serif; font-size:18px; font-weight:700; margin-bottom:16px;">&#128273; API Key 配置</h3>
+      <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置 API Key 后，APK 可独立运行，无需后端服务器。所有请求直接发送到 GitHub 和 SiliconFlow。</p>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">SiliconFlow API Key（必填，用于文章生成和语音合成）</label>
+        <input type="password" id="llmApiKeyInput" class="form-control" placeholder="sk_xxxxxxxxxxxxxxxx" style="width:100%;">
+        <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent2);">cloud.siliconflow.cn</a></p>
       </div>
-      <div id="serverTestResult" style="margin-top:10px; font-size:13px;"></div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">GitHub Token（选填，不填限每小时 60 次请求）</label>
+        <input type="password" id="githubTokenInput" class="form-control" placeholder="ghp_xxxxxxxxxxxxxxxx" style="width:100%;">
+        <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://github.com/settings/tokens/new?scopes=public_repo" target="_blank" style="color:var(--accent2);">github.com/settings/tokens</a></p>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">LLM API 地址（选填，默认 SiliconFlow）</label>
+        <input type="text" id="llmApiBaseInput" class="form-control" placeholder="https://api.siliconflow.cn/v1" style="width:100%;">
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">模型名称（选填，默认 Qwen2.5-72B）</label>
+        <input type="text" id="llmModelInput" class="form-control" placeholder="Qwen/Qwen2.5-72B-Instruct" style="width:100%;">
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="saveApiKeys()" style="padding:10px 24px;">&#128190; 保存配置</button>
+        <button class="btn btn-secondary" onclick="testApiKeys()" style="padding:10px 24px;">&#9889; 测试连接</button>
+      </div>
+      <div id="apiKeyTestResult" style="margin-top:12px; font-size:13px;"></div>
+    </div>
+
+    <!-- ===== 模式切换 ===== -->
+    <div class="form-card" style="margin-top:24px;">
+      <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#128268; 运行模式</h4>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+          <input type="radio" name="runMode" value="standalone" checked onchange="switchRunMode('standalone')">
+          <span>自包含模式（APK 推荐，无需服务器）</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+          <input type="radio" name="runMode" value="server" onchange="switchRunMode('server')">
+          <span>服务器模式（连接后端）</span>
+        </label>
+      </div>
+      <div id="serverUrlConfig" style="display:none; margin-top:16px;">
+        <input type="text" id="serverUrlInput" class="form-control" placeholder="http://电脑IP:8000" style="width:100%;">
+        <button class="btn btn-secondary" onclick="saveServerUrl()" style="margin-top:8px;">保存服务器地址</button>
+      </div>
     </div>
 
   </main>
@@ -965,6 +1006,7 @@ docker-compose exec api alembic upgrade head
 
 <script src="./_shared/js/echarts.min.js"></script>
 <script src="./_shared/js/howler.min.js"></script>
-<script src="assets/app.js?v=26"></script>
+<script src="assets/gitcast-engine.js?v=1"></script>
+<script src="assets/app.js?v=27"></script>
 </body>
 </html>

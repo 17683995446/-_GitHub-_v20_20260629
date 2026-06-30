@@ -356,9 +356,103 @@
   }
   window.showToast = showToast;
 
+  // ===== 自包含模式生成（无需后端服务器） =====
+  window.triggerPipelineStandalone = function() {
+    if (!GitCastEngine.hasKeys()) {
+      showToast('请先在「使用指南」页面配置 API Key', 'error');
+      showPage('howto', null);
+      return;
+    }
+
+    var selectedChip = document.querySelector('#langChips .chip.selected');
+    if (!selectedChip) { showToast('请选择一个编程语言', 'error'); return; }
+
+    var lang = selectedChip.dataset.lang;
+    var apiLang = lang === 'all' ? '' : lang;
+
+    var maxResults = 10;
+    document.querySelectorAll('#maxResultsGroup .toggle-item').forEach(function(i) {
+      if (i.classList.contains('active')) maxResults = parseInt(i.dataset.value);
+    });
+
+    var btn = document.getElementById('btnGenerate');
+    if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.textContent = '生成中...'; }
+
+    var result = document.getElementById('jobResult');
+    var badge = document.getElementById('jobBadge');
+    var idText = document.getElementById('jobIdText');
+    var details = document.getElementById('jobDetails');
+    result.classList.add('show');
+    badge.className = 'job-status-badge running';
+    badge.textContent = '运行中';
+    idText.textContent = '自包含模式 · 直连 API';
+    details.innerHTML = '<span style="color:var(--accent2);">⏳ 正在发现 GitHub 热门项目...</span>';
+
+    GitCastEngine.runGeneration(apiLang, maxResults, function(progress) {
+      if (progress.phase === 'discover') {
+        details.innerHTML = '<span style="color:var(--accent2);">🔍 ' + escapeHtml(progress.message) + '</span>';
+      } else if (progress.phase === 'generating') {
+        var pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+        var bar = '<div style="background:var(--bg); border-radius:4px; height:8px; margin-top:8px; overflow:hidden;">' +
+          '<div style="background:var(--accent); height:100%; width:' + pct + '%; transition:width 0.3s;"></div></div>';
+        details.innerHTML = '<div style="color:var(--accent); font-weight:600;">⏳ ' + progress.current + '/' + progress.total +
+          ' 篇 (' + pct + '%)</div>' +
+          '<div style="color:var(--muted); font-size:13px; margin-top:4px;">' + escapeHtml(progress.project || '') + '</div>' + bar;
+      } else if (progress.phase === 'error') {
+        details.innerHTML += '<div style="color:var(--warn); font-size:12px; margin-top:4px;">⚠️ ' + escapeHtml(progress.message) + '</div>';
+      } else if (progress.phase === 'done') {
+        details.innerHTML = '<span style="color:var(--accent);">✅ ' + escapeHtml(progress.message) + '</span>';
+      }
+    }).then(function(data) {
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.innerHTML = '\u26A1\uFE0F 开始生成'; }
+      badge.className = 'job-status-badge completed';
+      badge.textContent = '已完成';
+
+      if (data.articles && data.articles.length > 0) {
+        var timestamp = new Date().toLocaleString('zh-CN');
+        data.articles.forEach(function(a) {
+          generatedArticles.unshift({
+            title: a.title,
+            project_name: a.project_name,
+            project_url: a.project_url,
+            body: a.body,
+            word_count: a.word_count,
+            stars_today: a.stars_today,
+            language: apiLang || '多语言',
+            created_at: timestamp
+          });
+        });
+        totalStats.articles += data.articles.length;
+        totalStats.projects += data.articles.length;
+        totalStats.audio += data.articles.length;
+        updateStats();
+        renderRecentPodcasts();
+        saveToStorage();
+        updateChartsFromArticles();
+        showQuickResults(data);
+        showToast('成功生成 ' + data.total + ' 篇文章！耗时 ' + data.duration_sec + ' 秒', 'success');
+        autoGenerateAudioForArticles(data.articles);
+      } else {
+        idText.textContent = '未找到项目或生成失败';
+        details.innerHTML = '<span style="color:var(--warn);">⚠️ 未生成任何文章，请检查 API Key 配置</span>';
+      }
+    }).catch(function(err) {
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.innerHTML = '\u26A1\uFE0F 开始生成'; }
+      badge.className = 'job-status-badge failed';
+      badge.textContent = '失败';
+      details.innerHTML = '<span style="color:var(--danger);">❌ ' + escapeHtml(err.message) + '</span>';
+      showToast('生成失败: ' + err.message, 'error');
+    });
+  };
+
   // ===== Trigger Pipeline (异步任务模式) =====
   // 提交任务后立即返回 job_id，前端轮询状态，避免网关 504 超时。
   window.triggerPipeline = function() {
+    // 自包含模式：直接使用引擎
+    if (RUN_MODE === 'standalone') {
+      window.triggerPipelineStandalone();
+      return;
+    }
     var selectedChip = document.querySelector('#langChips .chip.selected');
     if (!selectedChip) {
       showToast('请选择一个编程语言', 'error');
@@ -760,15 +854,25 @@
       updateAudioButton(textId, 'generating');
     }
 
-    fetch(apiUrl('/api/v1/tts/generate'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text, voice: voice, speed: speed })
-    })
-    .then(function(resp) {
-      if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
-      return resp.blob();
-    })
+    // 自包含模式：使用引擎直连 SiliconFlow TTS API
+    function doTTS() {
+      if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+        return GitCastEngine.generateTTS(text, voice, speed).then(function(blob) {
+          return blob;
+        });
+      }
+      // 服务器模式：调用后端 TTS API
+      return fetch(apiUrl('/api/v1/tts/generate'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text, voice: voice, speed: speed })
+      }).then(function(resp) {
+        if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
+        return resp.blob();
+      });
+    }
+
+    doTTS()
     .then(function(blob) {
       var blobUrl = URL.createObjectURL(blob);
       audioCache[cacheKey] = { blobUrl: blobUrl, blob: blob };
@@ -1158,19 +1262,26 @@
     setBtnState(btn, 'loading');
     if (timeEl) timeEl.textContent = '正在生成语音...';
 
-    fetch(apiUrl('/api/v1/tts/generate'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: text,
-        voice: selectedVoice,
-        speed: playbackRate
-      })
-    })
-    .then(function(resp) {
-      if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
-      return resp.blob();
-    })
+    // 自包含模式：使用引擎直连 TTS API
+    function doSpeakTTS() {
+      if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+        return GitCastEngine.generateTTS(text, selectedVoice, playbackRate);
+      }
+      return fetch(apiUrl('/api/v1/tts/generate'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: text,
+          voice: selectedVoice,
+          speed: playbackRate
+        })
+      }).then(function(resp) {
+        if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
+        return resp.blob();
+      });
+    }
+
+    doSpeakTTS()
     .then(function(blob) {
       // 检查是否已被取消
       if (currentBtn !== btn) return;
@@ -1382,61 +1493,140 @@
   // the undefined showJobResult. It was never called anywhere.
 
   // ===== Check API Status =====
-  fetch(apiUrl('/api/v1/health'))
-    .then(function(r) {
-      if (r.ok) {
-        document.getElementById('apiStatusDot').classList.remove('off');
-        document.getElementById('apiStatusText').textContent = 'API 运行中';
-      }
-    })
-    .catch(function() {
+  if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+    // 自包含模式：检查 API Key 是否已配置
+    if (GitCastEngine.hasKeys()) {
+      document.getElementById('apiStatusDot').classList.remove('off');
+      document.getElementById('apiStatusText').textContent = '自包含模式 · 已配置';
+    } else {
       document.getElementById('apiStatusDot').classList.add('off');
-      document.getElementById('apiStatusText').textContent = 'API 未连接';
-    });
+      document.getElementById('apiStatusText').textContent = '未配置 API Key';
+    }
+  } else {
+    fetch(apiUrl('/api/v1/health'))
+      .then(function(r) {
+        if (r.ok) {
+          document.getElementById('apiStatusDot').classList.remove('off');
+          document.getElementById('apiStatusText').textContent = 'API 运行中';
+        }
+      })
+      .catch(function() {
+        document.getElementById('apiStatusDot').classList.add('off');
+        document.getElementById('apiStatusText').textContent = 'API 未连接';
+      });
+  }
 
   // ===== PWA: Service Worker 注册 + 安装提示 =====
   var deferredPrompt = null;
 
-  // ===== APK 模式：检测是否为独立应用 =====
-  var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-  if (isStandalone) {
-    // APK/PWA 独立模式：显示服务器设置
-    var card = document.getElementById('serverConfigCard');
-    if (card) card.style.display = 'block';
-    var input = document.getElementById('serverUrlInput');
-    if (input) input.value = API_BASE || '';
+  // ===== API Key 配置（自包含模式） =====
+  // 初始化：加载已保存的 API Key
+  function initApiKeys() {
+    var keys = GitCastEngine.getKeys();
+    var llmInput = document.getElementById('llmApiKeyInput');
+    var ghInput = document.getElementById('githubTokenInput');
+    var baseUrlInput = document.getElementById('llmApiBaseInput');
+    var modelInput = document.getElementById('llmModelInput');
+    if (llmInput) llmInput.value = keys.llmApiKey || '';
+    if (ghInput) ghInput.value = keys.githubToken || '';
+    if (baseUrlInput) baseUrlInput.value = keys.llmApiBase || '';
+    if (modelInput) modelInput.value = keys.llmModel || '';
+  }
+  initApiKeys();
+
+  // 运行模式
+  var RUN_MODE = 'standalone';
+  try { RUN_MODE = localStorage.getItem('gc_run_mode') || 'standalone'; } catch(e) {}
+  if (RUN_MODE === 'server') {
+    var r = document.querySelector('input[name="runMode"][value="server"]');
+    if (r) r.checked = true;
+    var s = document.getElementById('serverUrlConfig');
+    if (s) s.style.display = 'block';
+    var urlInput = document.getElementById('serverUrlInput');
+    if (urlInput) urlInput.value = API_BASE || '';
   }
 
+  window.switchRunMode = function(mode) {
+    RUN_MODE = mode;
+    try { localStorage.setItem('gc_run_mode', mode); } catch(e) {}
+    var s = document.getElementById('serverUrlConfig');
+    if (s) s.style.display = (mode === 'server') ? 'block' : 'none';
+    showToast('已切换到' + (mode === 'standalone' ? '自包含模式' : '服务器模式'), 'info');
+  };
+
+  window.saveApiKeys = function() {
+    var keys = {
+      llmApiKey: document.getElementById('llmApiKeyInput').value.trim(),
+      githubToken: document.getElementById('githubTokenInput').value.trim(),
+      llmApiBase: document.getElementById('llmApiBaseInput').value.trim() || GitCastEngine.DEFAULTS.llmApiBase,
+      llmModel: document.getElementById('llmModelInput').value.trim() || GitCastEngine.DEFAULTS.llmModel
+    };
+    GitCastEngine.saveKeys(keys);
+    document.getElementById('apiKeyTestResult').innerHTML =
+      '<span style="color:var(--accent);">✅ 配置已保存</span>';
+    showToast('API Key 已保存', 'success');
+  };
+
+  window.testApiKeys = function() {
+    var keys = GitCastEngine.getKeys();
+    if (!keys.llmApiKey) {
+      document.getElementById('apiKeyTestResult').innerHTML =
+        '<span style="color:var(--danger);">❌ 请先填写并保存 SiliconFlow API Key</span>';
+      return;
+    }
+    document.getElementById('apiKeyTestResult').innerHTML =
+      '<span style="color:var(--accent2);">⏳ 正在测试 GitHub API...</span>';
+
+    // 测试 GitHub API
+    var ghHeaders = { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'GitCast/1.0' };
+    if (keys.githubToken) ghHeaders['Authorization'] = 'token ' + keys.githubToken;
+
+    GitCastEngine.http({
+      url: GitCastEngine.DEFAULTS.githubApiBase + '/rate_limit',
+      headers: ghHeaders
+    }).then(function(resp) {
+      if (resp.ok && resp.json && resp.json.rate) {
+        var remaining = resp.json.rate.remaining;
+        var limit = resp.json.rate.limit;
+        // 测试 LLM API
+        return GitCastEngine.http({
+          url: keys.llmApiBase + '/chat/completions',
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + keys.llmApiKey },
+          json: {
+            model: keys.llmModel,
+            messages: [{ role: 'user', content: '你好' }],
+            max_tokens: 10
+          }
+        }).then(function(llmResp) {
+          if (llmResp.ok) {
+            document.getElementById('apiKeyTestResult').innerHTML =
+              '<span style="color:var(--accent);">✅ 全部正常！</span><br>' +
+              '<span style="color:var(--muted); font-size:12px;">GitHub API: ' + remaining + '/' + limit + ' 次剩余<br>' +
+              'LLM API: 连接成功（' + keys.llmModel + '）<br>' +
+              'TTS API: 同一 Key，支持语音合成</span>';
+            showToast('API 连接成功！', 'success');
+          } else {
+            document.getElementById('apiKeyTestResult').innerHTML =
+              '<span style="color:var(--accent);">✅ GitHub 正常（' + remaining + '/' + limit + '）</span><br>' +
+              '<span style="color:var(--danger);">❌ LLM API 失败: ' + llmResp.status + ' ' + (llmResp.text || '').substring(0, 100) + '</span>';
+          }
+        });
+      } else {
+        document.getElementById('apiKeyTestResult').innerHTML =
+          '<span style="color:var(--danger);">❌ GitHub API 连接失败: ' + resp.status + '</span>';
+      }
+    }).catch(function(err) {
+      document.getElementById('apiKeyTestResult').innerHTML =
+        '<span style="color:var(--danger);">❌ 连接失败: ' + escapeHtml(err.message) + '</span>';
+    });
+  };
+
+  // 保存服务器地址
   window.saveServerUrl = function() {
     var url = document.getElementById('serverUrlInput').value.trim();
     gitcastSetServer(url);
-    document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent);">✅ 服务器地址已保存: ' + escapeHtml(url) + '</span>';
-    showToast('服务器地址已保存', 'success');
-    // 重新检查 API 状态
-    setTimeout(function() { checkApiStatus(); }, 500);
-  };
-
-  window.testServerUrl = function() {
-    var url = document.getElementById('serverUrlInput').value.trim();
-    if (!url) {
-      document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--danger);">❌ 请输入服务器地址</span>';
-      return;
-    }
-    document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent2);">⏳ 正在测试连接...</span>';
-    gitcastSetServer(url);
-    fetch(apiUrl('/api/v1/health'))
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.status === 'ok') {
-          document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--accent);">✅ 连接成功！GitCast API 正常运行</span>';
-          showToast('服务器连接成功！', 'success');
-        } else {
-          document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--warn);">⚠️ 连接成功但返回异常: ' + escapeHtml(JSON.stringify(data)) + '</span>';
-        }
-      })
-      .catch(function(err) {
-        document.getElementById('serverTestResult').innerHTML = '<span style="color:var(--danger);">❌ 连接失败: ' + escapeHtml(err.message) + '</span>';
-      });
+    showToast('服务器地址已保存: ' + url, 'success');
   };
 
   // 注册 Service Worker
