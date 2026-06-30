@@ -1,0 +1,11 @@
+{
+  "appId": "com.gitcast.app",
+  "appName": "GitCast",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
