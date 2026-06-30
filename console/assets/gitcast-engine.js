@@ -215,24 +215,239 @@
     return '';
   }
 
+  // ===== 2b. 获取仓库文件树 =====
+  async function fetchFileTree(fullName) {
+    var keys = getKeys();
+    var headers = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'GitCast/1.0'
+    };
+    if (keys.githubToken) {
+      headers['Authorization'] = 'token ' + keys.githubToken;
+    }
+
+    try {
+      var resp = await http({
+        url: DEFAULTS.githubApiBase + '/repos/' + fullName + '/git/trees/HEAD?recursive=1',
+        headers: headers
+      });
+      if (resp.ok && resp.json && resp.json.tree) {
+        return resp.json.tree;
+      }
+    } catch(e) {}
+    return [];
+  }
+
+  // ===== 2c. 从文件树中智能识别核心源文件 =====
+  function identifyCoreFiles(tree) {
+    // 核心文件名模式（权重越高越重要）
+    var CORE_PATTERNS = [
+      { regex: /\b(core|engine|kernel|runtime|scheduler|executor|pipeline)\b/i, weight: 10 },
+      { regex: /\b(main|app|index|server|handler|router|controller)\b/i, weight: 8 },
+      { regex: /\b(model|schema|types|interface|protocol)\b/i, weight: 7 },
+      { regex: /\b(allocator|gc|memory|buffer|pool|cache)\b/i, weight: 9 },
+      { regex: /\b(parser|lexer|compiler|optimizer|transformer)\b/i, weight: 9 },
+      { regex: /\b(worker|task|job|queue|channel|concurrent)\b/i, weight: 8 },
+      { regex: /\b(crypto|auth|tls|ssl|encrypt|secure)\b/i, weight: 8 },
+      { regex: /\b(store|db|database|storage|repository|dao)\b/i, weight: 7 },
+      { regex: /\b(config|setting|option|feature)\b/i, weight: 5 },
+      { regex: /\b(util|helper|common|base)\b/i, weight: 4 },
+    ];
+
+    // 排除的文件（不感兴趣）
+    var EXCLUDE = /\.(md|txt|json|ya?ml|toml|ini|env|lock|sum|mod|gitignore|dockerfile|makefile|license|changelog|contributing)$/i;
+    var EXCLUDE_DIR = /node_modules|vendor|third_party|dist|build|target|\.git|test|spec|docs|example|demo/i;
+
+    var candidates = [];
+    for (var i = 0; i < tree.length; i++) {
+      var entry = tree[i];
+      if (entry.type !== 'blob') continue;
+      var path = entry.path;
+
+      // 排除目录
+      if (EXCLUDE_DIR.test(path)) continue;
+      // 排除非代码文件
+      if (EXCLUDE.test(path)) continue;
+      // 只看源代码文件
+      if (!/\.(py|go|rs|ts|js|java|kt|c|cc|cpp|h|hpp|rb|swift|zig|nim|dart|lua|sh|scala|clj|ex|exs|hs|ml|fs|cr|d|jl|php)\b/i.test(path)) continue;
+
+      // 计算权重
+      var basename = path.split('/').pop().replace(/\.\w+$/, '');
+      var weight = 0;
+      for (var p = 0; p < CORE_PATTERNS.length; p++) {
+        if (CORE_PATTERNS[p].regex.test(basename)) {
+          weight = Math.max(weight, CORE_PATTERNS[p].weight);
+        }
+      }
+      // 路径深度加分（根目录或 src/ 下的文件更重要）
+      var depth = (path.match(/\//g) || []).length;
+      if (depth === 0) weight += 3; // 根目录文件
+      else if (depth === 1) weight += 2; // src/ 下一级
+      // 文件大小适中加分（太小可能是空文件，太大可能太杂）
+      var size = entry.size || 0;
+      if (size > 500 && size < 30000) weight += 2;
+
+      if (weight > 0) {
+        candidates.push({ path: path, weight: weight, size: size });
+      }
+    }
+
+    // 按权重排序，取前 5 个
+    candidates.sort(function(a, b) { return b.weight - a.weight; });
+    return candidates.slice(0, 5);
+  }
+
+  // ===== 2d. 获取单个文件内容 =====
+  async function fetchFileContent(fullName, filePath) {
+    var keys = getKeys();
+    var headers = {
+      'Accept': 'application/vnd.github.v3.raw',
+      'User-Agent': 'GitCast/1.0'
+    };
+    if (keys.githubToken) {
+      headers['Authorization'] = 'token ' + keys.githubToken;
+    }
+
+    try {
+      var resp = await http({
+        url: DEFAULTS.githubApiBase + '/repos/' + fullName + '/contents/' + encodeURIComponent(filePath),
+        headers: headers
+      });
+      if (resp.ok && resp.text) {
+        return resp.text.substring(0, 2500);
+      }
+    } catch(e) {}
+    return '';
+  }
+
+  // ===== 2e. 获取项目仓库元信息（stars, forks, languages, topics） =====
+  async function fetchRepoMeta(fullName) {
+    var keys = getKeys();
+    var headers = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'GitCast/1.0'
+    };
+    if (keys.githubToken) {
+      headers['Authorization'] = 'token ' + keys.githubToken;
+    }
+
+    try {
+      var resp = await http({
+        url: DEFAULTS.githubApiBase + '/repos/' + fullName,
+        headers: headers
+      });
+      if (resp.ok && resp.json) {
+        var d = resp.json;
+        return {
+          stars: d.stargazers_count || 0,
+          forks: d.forks_count || 0,
+          watchers: d.subscribers_count || 0,
+          open_issues: d.open_issues_count || 0,
+          language: d.language || '',
+          topics: d.topics || [],
+          license: (d.license && d.license.name) || 'Unknown',
+          created_at: d.created_at || '',
+          pushed_at: d.pushed_at || '',
+          size: d.size || 0,
+          default_branch: d.default_branch || 'main',
+          description: d.description || ''
+        };
+      }
+    } catch(e) {}
+    return null;
+  }
+
   // ===== 3. 生成两人对话式播客文章（调用 LLM） =====
   async function generateArticle(repo, onProgress) {
     var keys = getKeys();
     if (!keys.llmApiKey) throw new Error('未配置 LLM API Key');
 
-    if (onProgress) onProgress('正在获取 ' + repo.full_name + ' 的 README...');
+    // === 并行获取：README + 仓库元信息 + 文件树 ===
+    if (onProgress) onProgress('正在分析 ' + repo.full_name + ' 的项目结构...');
 
-    var readme = await fetchReadme(repo.full_name);
-    var readmeSection = '';
-    if (readme) {
-      readmeSection = '\n--- 项目 README（节选）---\n' + readme + '\n--- README 节选结束 ---\n';
+    var results = await Promise.allSettled([
+      fetchReadme(repo.full_name),
+      fetchRepoMeta(repo.full_name),
+      fetchFileTree(repo.full_name)
+    ]);
+
+    var readme = results[0].status === 'fulfilled' ? results[0].value : '';
+    var meta = results[1].status === 'fulfilled' ? results[1].value : null;
+    var fileTree = results[2].status === 'fulfilled' ? results[2].value : [];
+
+    // === 从文件树中智能识别核心源文件 ===
+    var coreFiles = identifyCoreFiles(fileTree);
+
+    // === 并行获取核心文件代码内容 ===
+    var codeSnippets = [];
+    if (coreFiles.length > 0) {
+      if (onProgress) onProgress('正在读取核心源代码（' + coreFiles.length + ' 个文件）...');
+
+      var fileResults = await Promise.allSettled(
+        coreFiles.map(function(f) { return fetchFileContent(repo.full_name, f.path); })
+      );
+
+      for (var i = 0; i < fileResults.length; i++) {
+        if (fileResults[i].status === 'fulfilled' && fileResults[i].value) {
+          codeSnippets.push({
+            path: coreFiles[i].path,
+            content: fileResults[i].value
+          });
+        }
+      }
     }
+
+    // === 构建上下文信息 ===
+    var contextParts = [];
+
+    // 元信息
+    if (meta) {
+      contextParts.push('--- 仓库元信息 ---');
+      contextParts.push('Stars: ' + meta.stars + ' | Forks: ' + meta.forks + ' | Watchers: ' + meta.watchers);
+      contextParts.push('语言: ' + meta.language + ' | License: ' + meta.license);
+      contextParts.push('Topics: ' + (meta.topics.length > 0 ? meta.topics.join(', ') : '无'));
+      contextParts.push('仓库大小: ' + meta.size + ' KB');
+      contextParts.push('');
+    }
+
+    // README
+    if (readme) {
+      contextParts.push('--- README（节选）---');
+      contextParts.push(readme);
+      contextParts.push('');
+    }
+
+    // 文件结构概览（前 40 个源文件路径）
+    if (fileTree.length > 0) {
+      var codePaths = fileTree
+        .filter(function(e) { return e.type === 'blob' && /\.(py|go|rs|ts|js|java|kt|c|cc|cpp|h|hpp|rb|swift|zig|nim)\b/i.test(e.path); })
+        .map(function(e) { return e.path; })
+        .slice(0, 40);
+      if (codePaths.length > 0) {
+        contextParts.push('--- 项目文件结构（源代码文件列表）---');
+        contextParts.push(codePaths.join('\n'));
+        contextParts.push('');
+      }
+    }
+
+    // 核心代码片段
+    if (codeSnippets.length > 0) {
+      contextParts.push('--- 核心源代码（智能选取的 ' + codeSnippets.length + ' 个关键文件）---');
+      for (var s = 0; s < codeSnippets.length; s++) {
+        contextParts.push('【文件: ' + codeSnippets[s].path + '】');
+        contextParts.push(codeSnippets[s].content);
+        contextParts.push('');
+      }
+      contextParts.push('--- 核心源代码结束 ---');
+      contextParts.push('');
+    }
+
+    var context = contextParts.join('\n');
 
     var prompt = '请为以下 GitHub 开源项目创作一期两人对话式技术播客脚本。\n\n' +
       '项目: ' + repo.full_name + '\n' +
-      '描述: ' + (repo.description || '暂无') + '\n' +
-      '今日新增星数: ' + repo.stars_today + '\n' +
-      readmeSection + '\n' +
+      '描述: ' + (repo.description || '暂无') + '\n\n' +
+      context + '\n' +
       '播客形式：两位主持人对话，角色设定：\n' +
       '  - 阿明（技术达人，资深开发者，对项目了如指掌，负责深入解读技术细节）\n' +
       '  - 小白（科技爱好者，非专业开发者，代表听众提问，追问"为什么"和"怎么做到的"）\n\n' +
@@ -244,24 +459,28 @@
       '   阿明：对话内容...\n' +
       '   （以此类推，每句对话单独一行，角色名后跟冒号）\n\n' +
       '对话内容要求（极其重要）：\n' +
-      '  - 对话轮次：15-25 轮（30-50 句对话），总字数 2000-3000 字\n' +
-      '  - 开篇：小白用生活场景引入（"我最近遇到一个问题..."），阿明自然引出项目\n' +
-      '  - 技术深度（必须有干货）：\n' +
-      '    * 阿明要讲清楚具体的技术实现细节，不能只说"很强大"\n' +
-      '    * 提到具体的架构设计、算法原理、数据结构、性能优化手段\n' +
-      '    * 解释关键代码思路（不需要贴代码，用语言描述逻辑）\n' +
+      '  - 对话轮次：15-25 轮（30-50 句对话），总字数 2500-3500 字\n' +
+      '  - 开篇：小白用生活场景引入（"我最近遇到一个问题..."），阿明自然引出项目\n\n' +
+      '  - 技术深度（必须基于上面提供的源代码和文件结构来分析，不能空谈）：\n' +
+      '    * 阿明要讲清楚具体的技术实现细节，必须引用代码中的关键逻辑\n' +
+      '    * 分析核心文件中用到的架构模式（如工厂模式、观察者、事件驱动等）\n' +
+      '    * 解释关键算法/数据结构的工作原理（如"它用了一个 LRU 缓存，这意味着..."）\n' +
       '    * 对比同类方案的优劣（如"和 X 相比，它用了 Y 方法，好处是 Z"）\n' +
-      '    * 提到具体的技术指标（吞吐量、延迟、内存占用等，基于 README 信息推断）\n' +
+      '    * 指出代码中的巧妙设计（如"你看这个 xxx 函数，它先做了 A 再做 B，这样避免了 C 问题"）\n' +
+      '    * 如果代码中有性能优化手段（如池化、零拷贝、延迟加载等），必须讲出来\n' +
+      '    * 基于代码推断项目的核心创新点（"这个项目最大的创新在于..."）\n\n' +
       '  - 通俗易懂：\n' +
       '    * 小白在关键处追问"这个具体怎么理解的？""能给个比喻吗？"\n' +
       '    * 阿明用生活中的比喻解释抽象概念（如"这就像快递分拣中心..."）\n' +
       '    * 技术术语第一次出现时，阿明会用一句话解释\n' +
+      '    * 提到代码时不要念代码，而是用大白话描述代码做了什么\n\n' +
       '  - 节奏感：\n' +
       '    * 小白适时表达惊讶或恍然大悟（"原来如此！""这个设计真巧妙"）\n' +
       '    * 阿明偶尔抛出趣味冷知识或行业八卦\n' +
       '    * 不要机械问答，要有自然的对话感\n' +
       '  - 结尾：小白总结收获，阿明给出上手建议和学习路径\n\n' +
-      '关键提醒：不要出现任何旁白、解说词、小标题，整篇内容只有"阿明：..."和"小白：..."交替的对话。';
+      '关键提醒：不要出现任何旁白、解说词、小标题，整篇内容只有"阿明：..."和"小白：..."交替的对话。\n' +
+      '你必须真正阅读和理解上面提供的源代码，对话中要体现对代码的理解，不能泛泛而谈。';
 
     if (onProgress) onProgress('正在用 AI 生成对话式播客...');
 
@@ -274,11 +493,11 @@
         messages: [
           {
             role: 'system',
-            content: '你是一位资深技术播客制作人，擅长创作两人对话式技术节目。你的脚本既有深度技术干货（架构、算法、性能细节），又通俗易懂（比喻、追问、生活化解释）。对话自然流畅，信息密度极高，听众听完后能真正理解项目的技术精髓。你绝不写空话套话，每句话都有信息量。'
+            content: '你是一位资深技术播客制作人兼全栈工程师，擅长创作两人对话式技术节目。你会仔细阅读项目源代码，从中提取核心技术细节和创新点，用通俗易懂的对话形式讲出来。你的脚本信息密度极高，每句话都有价值，听众听完后能真正理解项目的技术精髓和代码之美。你绝不写空话套话。'
           },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 4000,
+        max_tokens: 5000,
         temperature: 0.85
       }
     });
@@ -520,6 +739,10 @@
     generateTTS: generateTTS,
     generateDialogueTTS: generateDialogueTTS,
     parseDialogue: parseDialogue,
+    fetchFileTree: fetchFileTree,
+    identifyCoreFiles: identifyCoreFiles,
+    fetchFileContent: fetchFileContent,
+    fetchRepoMeta: fetchRepoMeta,
     cleanTextForSpeech: cleanTextForSpeech,
     runGeneration: runGeneration,
     http: http,
