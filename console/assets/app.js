@@ -857,6 +857,13 @@
     // 自包含模式：使用引擎直连 SiliconFlow TTS API
     function doTTS() {
       if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+        // 对话式文章用双声音 TTS
+        var dialogueResult = GitCastEngine.parseDialogue(text);
+        if (dialogueResult.length > 1) {
+          return GitCastEngine.generateDialogueTTS(text, voice, speed).then(function(blob) {
+            return blob;
+          });
+        }
         return GitCastEngine.generateTTS(text, voice, speed).then(function(blob) {
           return blob;
         });
@@ -1265,6 +1272,11 @@
     // 自包含模式：使用引擎直连 TTS API
     function doSpeakTTS() {
       if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+        // 对话式文章用双声音 TTS
+        var dialogueResult = GitCastEngine.parseDialogue(text);
+        if (dialogueResult.length > 1) {
+          return GitCastEngine.generateDialogueTTS(text, selectedVoice, playbackRate);
+        }
         return GitCastEngine.generateTTS(text, selectedVoice, playbackRate);
       }
       return fetch(apiUrl('/api/v1/tts/generate'), {

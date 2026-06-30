@@ -215,7 +215,7 @@
     return '';
   }
 
-  // ===== 3. 生成文章（调用 LLM） =====
+  // ===== 3. 生成两人对话式播客文章（调用 LLM） =====
   async function generateArticle(repo, onProgress) {
     var keys = getKeys();
     if (!keys.llmApiKey) throw new Error('未配置 LLM API Key');
@@ -228,26 +228,42 @@
       readmeSection = '\n--- 项目 README（节选）---\n' + readme + '\n--- README 节选结束 ---\n';
     }
 
-    var prompt = '请为以下 GitHub 开源项目写一篇详细、有深度的科普文章，面向对技术感兴趣但非专业开发者的读者。\n\n' +
+    var prompt = '请为以下 GitHub 开源项目创作一期两人对话式技术播客脚本。\n\n' +
       '项目: ' + repo.full_name + '\n' +
       '描述: ' + (repo.description || '暂无') + '\n' +
       '今日新增星数: ' + repo.stars_today + '\n' +
       readmeSection + '\n' +
-      '写作要求：\n' +
-      '1. 第一行是标题（不要加#号），标题要有吸引力，体现项目的核心价值\n' +
-      '2. 正文 800-1200 字，分成以下几个部分（用空行分隔，不要加小标题前缀符号）：\n\n' +
-      '   【开篇引子】用一个生活中的比喻或场景引入，让读者立刻明白这个项目解决什么问题\n' +
-      '   【项目是什么】详细解释项目的核心功能和定位，不是简单复述描述，而是深入解读\n' +
-      '   【技术原理】用通俗的比喻解释核心技术原理，让非技术人员也能理解它怎么工作的\n' +
-      '   【核心功能】列举 2-3 个最有价值的功能，每个功能用 1-2 段详细说明\n' +
-      '   【适合谁用】说明目标用户群体和具体使用场景\n' +
-      '   【上手难度】评估学习成本，给出快速上手的建议\n' +
-      '   【总结展望】这个项目为什么值得关注，未来可能的发展方向\n\n' +
-      '3. 语言风格：像跟朋友聊天一样，生动有趣但信息密度高\n' +
-      '4. 每个观点都要有具体例子或比喻支撑，不要空话\n' +
-      '5. 适当使用类比、对比来帮助理解抽象概念\n';
+      '播客形式：两位主持人对话，角色设定：\n' +
+      '  - 阿明（技术达人，资深开发者，对项目了如指掌，负责深入解读技术细节）\n' +
+      '  - 小白（科技爱好者，非专业开发者，代表听众提问，追问"为什么"和"怎么做到的"）\n\n' +
+      '输出格式（严格遵守）：\n' +
+      '1. 第一行是标题（不要加#号），标题要有吸引力，像播客节目名\n' +
+      '2. 从第二行开始是对话内容，格式为：\n' +
+      '   阿明：对话内容...\n' +
+      '   小白：对话内容...\n' +
+      '   阿明：对话内容...\n' +
+      '   （以此类推，每句对话单独一行，角色名后跟冒号）\n\n' +
+      '对话内容要求（极其重要）：\n' +
+      '  - 对话轮次：15-25 轮（30-50 句对话），总字数 2000-3000 字\n' +
+      '  - 开篇：小白用生活场景引入（"我最近遇到一个问题..."），阿明自然引出项目\n' +
+      '  - 技术深度（必须有干货）：\n' +
+      '    * 阿明要讲清楚具体的技术实现细节，不能只说"很强大"\n' +
+      '    * 提到具体的架构设计、算法原理、数据结构、性能优化手段\n' +
+      '    * 解释关键代码思路（不需要贴代码，用语言描述逻辑）\n' +
+      '    * 对比同类方案的优劣（如"和 X 相比，它用了 Y 方法，好处是 Z"）\n' +
+      '    * 提到具体的技术指标（吞吐量、延迟、内存占用等，基于 README 信息推断）\n' +
+      '  - 通俗易懂：\n' +
+      '    * 小白在关键处追问"这个具体怎么理解的？""能给个比喻吗？"\n' +
+      '    * 阿明用生活中的比喻解释抽象概念（如"这就像快递分拣中心..."）\n' +
+      '    * 技术术语第一次出现时，阿明会用一句话解释\n' +
+      '  - 节奏感：\n' +
+      '    * 小白适时表达惊讶或恍然大悟（"原来如此！""这个设计真巧妙"）\n' +
+      '    * 阿明偶尔抛出趣味冷知识或行业八卦\n' +
+      '    * 不要机械问答，要有自然的对话感\n' +
+      '  - 结尾：小白总结收获，阿明给出上手建议和学习路径\n\n' +
+      '关键提醒：不要出现任何旁白、解说词、小标题，整篇内容只有"阿明：..."和"小白：..."交替的对话。';
 
-    if (onProgress) onProgress('正在用 AI 生成文章...');
+    if (onProgress) onProgress('正在用 AI 生成对话式播客...');
 
     var resp = await http({
       url: keys.llmApiBase + '/chat/completions',
@@ -258,12 +274,12 @@
         messages: [
           {
             role: 'system',
-            content: '你是资深科技博主和技术布道者，擅长用生动通俗的语言深入解读开源项目。你的文章信息密度高、有深度、能让读者真正学到知识。你善于用比喻和类比解释复杂技术，让非技术人员也能理解。每篇文章都要让读者觉得"原来如此，我理解了"。'
+            content: '你是一位资深技术播客制作人，擅长创作两人对话式技术节目。你的脚本既有深度技术干货（架构、算法、性能细节），又通俗易懂（比喻、追问、生活化解释）。对话自然流畅，信息密度极高，听众听完后能真正理解项目的技术精髓。你绝不写空话套话，每句话都有信息量。'
           },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 3000,
-        temperature: 0.8
+        max_tokens: 4000,
+        temperature: 0.85
       }
     });
 
@@ -282,7 +298,8 @@
       stars_today: repo.stars_today,
       body: body,
       word_count: content.length,
-      model: keys.llmModel
+      model: keys.llmModel,
+      is_dialogue: true
     };
   }
 
@@ -345,6 +362,89 @@
 
     // 返回 Blob
     return new Blob([resp.data], { type: 'audio/mpeg' });
+  }
+
+  // ===== 5b. 对话式 TTS：解析对话，双声音交替合成 =====
+  // 对话格式："阿明：xxx" / "小白：yyy"，阿明用低沉男声，小白用温柔女声
+  function parseDialogue(text) {
+    var lines = text.split('\n');
+    var segments = [];
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line) continue;
+      // 匹配 "角色名：内容" 或 "角色名: 内容"
+      var match = line.match(/^(阿明|小白)\s*[：:]\s*(.+)$/);
+      if (match) {
+        segments.push({ speaker: match[1], text: match[2] });
+      } else {
+        // 不匹配的行：如果上一段存在，追加到上一段；否则作为旁白
+        if (segments.length > 0) {
+          segments[segments.length - 1].text += ' ' + line;
+        } else {
+          segments.push({ speaker: '阿明', text: line });
+        }
+      }
+    }
+    return segments;
+  }
+
+  async function generateDialogueTTS(text, voice, speed) {
+    var keys = getKeys();
+    if (!keys.llmApiKey) throw new Error('未配置 LLM API Key');
+
+    var segments = parseDialogue(text);
+    if (segments.length === 0) {
+      // 解析不到对话格式，回退普通 TTS
+      return generateTTS(text, voice, speed);
+    }
+
+    // 阿明用男声（alex），小白用女声（claire）
+    var hostVoice = VOICES[voice] ? voice : 'alex';
+    var guestVoice = 'claire';
+    // 如果用户选的就是女声，阿明用 david，小白用用户选的
+    if (VOICES[voice] && VOICES[voice].name.indexOf('女') >= 0) {
+      hostVoice = 'david';
+      guestVoice = voice;
+    }
+
+    var hostVoiceId = VOICES[hostVoice].id;
+    var guestVoiceId = VOICES[guestVoice].id;
+
+    // 逐段合成，收集 Blob
+    var audioBlobs = [];
+    for (var i = 0; i < segments.length; i++) {
+      var seg = segments[i];
+      var segVoiceId = seg.speaker === '阿明' ? hostVoiceId : guestVoiceId;
+      var segText = cleanTextForSpeech(seg.text);
+      if (!segText) continue;
+
+      try {
+        var resp = await http({
+          url: keys.llmApiBase + '/audio/speech',
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + keys.llmApiKey },
+          json: {
+            model: DEFAULTS.ttsModel,
+            input: segText.substring(0, 5000),
+            voice: segVoiceId,
+            response_format: 'mp3',
+            speed: speed || 1.0
+          },
+          responseType: 'blob'
+        });
+
+        if (resp.ok && resp.data) {
+          audioBlobs.push(new Blob([resp.data], { type: 'audio/mpeg' }));
+        }
+      } catch(e) {
+        console.warn('dialogue TTS segment ' + i + ' failed:', e);
+      }
+    }
+
+    if (audioBlobs.length === 0) throw new Error('对话 TTS 全部段失败');
+
+    // 拼接所有音频 Blob
+    return new Blob(audioBlobs, { type: 'audio/mpeg' });
   }
 
   // ===== 6. 完整生成流程（替代 quickgen） =====
@@ -418,6 +518,8 @@
     discoverRepos: discoverRepos,
     generateArticle: generateArticle,
     generateTTS: generateTTS,
+    generateDialogueTTS: generateDialogueTTS,
+    parseDialogue: parseDialogue,
     cleanTextForSpeech: cleanTextForSpeech,
     runGeneration: runGeneration,
     http: http,
