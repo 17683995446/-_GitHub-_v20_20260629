@@ -820,6 +820,102 @@
   // 音频缓存：key = textId + voice + speed，value = { blobUrl, blob }
   var audioCache = {};
 
+  // ===== IndexedDB 持久化音频缓存 =====
+  var AUDIO_DB_NAME = 'gitcast_audio_db';
+  var AUDIO_DB_VERSION = 1;
+  var AUDIO_STORE = 'audio_blobs';
+  var audioDb = null;
+
+  // 初始化 IndexedDB
+  function initAudioDB() {
+    return new Promise(function(resolve, reject) {
+      try {
+        var request = indexedDB.open(AUDIO_DB_NAME, AUDIO_DB_VERSION);
+        request.onupgradeneeded = function(e) {
+          var db = e.target.result;
+          if (!db.objectStoreNames.contains(AUDIO_STORE)) {
+            db.createObjectStore(AUDIO_STORE, { keyPath: 'cacheKey' });
+          }
+        };
+        request.onsuccess = function(e) {
+          audioDb = e.target.result;
+          resolve(audioDb);
+        };
+        request.onerror = function(e) {
+          console.warn('[GitCast] IndexedDB 打开失败:', e.target.error);
+          resolve(null);
+        };
+      } catch(e) {
+        console.warn('[GitCast] IndexedDB 不可用:', e.message);
+        resolve(null);
+      }
+    });
+  }
+
+  // 保存音频到 IndexedDB
+  function saveAudioToDB(cacheKey, blob) {
+    if (!audioDb) return Promise.resolve();
+    return new Promise(function(resolve) {
+      try {
+        var tx = audioDb.transaction([AUDIO_STORE], 'readwrite');
+        var store = tx.objectStore(AUDIO_STORE);
+        store.put({
+          cacheKey: cacheKey,
+          blob: blob,
+          timestamp: Date.now()
+        });
+        tx.oncomplete = function() { resolve(); };
+        tx.onerror = function() { resolve(); };
+      } catch(e) { resolve(); }
+    });
+  }
+
+  // 从 IndexedDB 读取音频
+  function getAudioFromDB(cacheKey) {
+    if (!audioDb) return Promise.resolve(null);
+    return new Promise(function(resolve) {
+      try {
+        var tx = audioDb.transaction([AUDIO_STORE], 'readonly');
+        var store = tx.objectStore(AUDIO_STORE);
+        var request = store.get(cacheKey);
+        request.onsuccess = function(e) {
+          var result = e.target.result;
+          resolve(result ? result.blob : null);
+        };
+        request.onerror = function() { resolve(null); };
+      } catch(e) { resolve(null); }
+    });
+  }
+
+  // 从 IndexedDB 恢复所有音频缓存到内存
+  function restoreAudioCacheFromDB() {
+    if (!audioDb) return;
+    var tx = audioDb.transaction([AUDIO_STORE], 'readonly');
+    var store = tx.objectStore(AUDIO_STORE);
+    var request = store.getAll();
+    request.onsuccess = function(e) {
+      var results = e.target.result || [];
+      var restored = 0;
+      results.forEach(function(item) {
+        if (item.cacheKey && item.blob && !audioCache[item.cacheKey]) {
+          audioCache[item.cacheKey] = {
+            blobUrl: URL.createObjectURL(item.blob),
+            blob: item.blob
+          };
+          restored++;
+        }
+      });
+      if (restored > 0) {
+        console.log('[GitCast] 从 IndexedDB 恢复了 ' + restored + ' 条音频缓存');
+      }
+    };
+  }
+
+  // 初始化 IndexedDB（页面加载时）
+  initAudioDB().then(function() {
+    restoreAudioCacheFromDB();
+  });
+
   // 批量预生成音频：文章生成后自动为每篇文章合成语音
   function autoGenerateAudioForArticles(articles) {
     if (!articles || articles.length === 0) return;
@@ -849,10 +945,24 @@
       return;
     }
 
-    // 非静默模式才显示"合成中"（新文章生成时需要给用户反馈）
-    if (!silent) {
-      updateAudioButton(textId, 'generating');
-    }
+    // 检查 IndexedDB 持久化缓存
+    getAudioFromDB(cacheKey).then(function(persistedBlob) {
+      if (persistedBlob) {
+        // IndexedDB 命中，恢复到内存
+        audioCache[cacheKey] = {
+          blobUrl: URL.createObjectURL(persistedBlob),
+          blob: persistedBlob
+        };
+        updateAudioButton(textId, 'ready');
+        console.log('[GitCast] 音频从 IndexedDB 恢复:', textId);
+        return;
+      }
+
+      // IndexedDB 也未命中，需要生成
+      // 非静默模式才显示"合成中"（新文章生成时需要给用户反馈）
+      if (!silent) {
+        updateAudioButton(textId, 'generating');
+      }
 
     // 自包含模式：使用引擎直连 SiliconFlow TTS API
     function doTTS() {
@@ -883,6 +993,8 @@
     .then(function(blob) {
       var blobUrl = URL.createObjectURL(blob);
       audioCache[cacheKey] = { blobUrl: blobUrl, blob: blob };
+      // 持久化到 IndexedDB
+      saveAudioToDB(cacheKey, blob);
       updateAudioButton(textId, 'ready');
       console.log('[GitCast] 音频预生成完成:', textId, '(' + (blob.size / 1024).toFixed(0) + ' KB)');
     })
@@ -890,6 +1002,7 @@
       console.warn('[GitCast] 音频预生成失败:', textId, err);
       if (!silent) updateAudioButton(textId, 'normal');
     });
+    }); // end getAudioFromDB.then
   }
   window.preGenerateAudio = preGenerateAudio;
 
@@ -1256,7 +1369,7 @@
       progressEl.style.display = 'block';
     }
 
-    // 1. 先检查音频缓存
+    // 1. 先检查内存音频缓存
     var cacheKey = textId + ':' + selectedVoice + ':' + playbackRate;
     if (audioCache[cacheKey]) {
       // 缓存命中，直接播放
@@ -1265,48 +1378,62 @@
       return;
     }
 
-    // 2. 缓存未命中，实时生成
-    setBtnState(btn, 'loading');
-    if (timeEl) timeEl.textContent = '正在生成语音...';
-
-    // 自包含模式：使用引擎直连 TTS API
-    function doSpeakTTS() {
-      if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
-        // 对话式文章用双声音 TTS
-        var dialogueResult = GitCastEngine.parseDialogue(text);
-        if (dialogueResult.length > 1) {
-          return GitCastEngine.generateDialogueTTS(text, selectedVoice, playbackRate);
-        }
-        return GitCastEngine.generateTTS(text, selectedVoice, playbackRate);
+    // 1b. 内存缓存未命中，检查 IndexedDB 持久化缓存
+    getAudioFromDB(cacheKey).then(function(persistedBlob) {
+      if (persistedBlob) {
+        // IndexedDB 命中，恢复到内存并播放
+        var audioUrl = URL.createObjectURL(persistedBlob);
+        audioCache[cacheKey] = { blobUrl: audioUrl, blob: persistedBlob };
+        if (timeEl) timeEl.textContent = '准备播放...';
+        playWithHowler(audioUrl, btn, textId, progressEl, barEl, timeEl);
+        return;
       }
-      return fetch(apiUrl('/api/v1/tts/generate'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: text,
-          voice: selectedVoice,
-          speed: playbackRate
-        })
-      }).then(function(resp) {
-        if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
-        return resp.blob();
-      });
-    }
 
-    doSpeakTTS()
-    .then(function(blob) {
-      // 检查是否已被取消
-      if (currentBtn !== btn) return;
-      var audioUrl = URL.createObjectURL(blob);
-      // 存入缓存
-      audioCache[cacheKey] = { blobUrl: audioUrl, blob: blob };
-      playWithHowler(audioUrl, btn, textId, progressEl, barEl, timeEl);
-    })
-    .catch(function(err) {
-      console.warn('TTS API failed, falling back to Web Speech API:', err);
-      if (currentBtn !== btn) return;
-      if (timeEl) timeEl.textContent = '使用浏览器语音...';
-      playWithWebSpeech(text, btn, textId, progressEl, barEl, timeEl);
+      // 2. 缓存全部未命中，实时生成
+      setBtnState(btn, 'loading');
+      if (timeEl) timeEl.textContent = '正在生成语音...';
+
+      // 自包含模式：使用引擎直连 TTS API
+      function doSpeakTTS() {
+        if (RUN_MODE === 'standalone' || GitCastEngine.isStandalone()) {
+          // 对话式文章用双声音 TTS
+          var dialogueResult = GitCastEngine.parseDialogue(text);
+          if (dialogueResult.length > 1) {
+            return GitCastEngine.generateDialogueTTS(text, selectedVoice, playbackRate);
+          }
+          return GitCastEngine.generateTTS(text, selectedVoice, playbackRate);
+        }
+        return fetch(apiUrl('/api/v1/tts/generate'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: text,
+            voice: selectedVoice,
+            speed: playbackRate
+          })
+        }).then(function(resp) {
+          if (!resp.ok) throw new Error('TTS HTTP ' + resp.status);
+          return resp.blob();
+        });
+      }
+
+      doSpeakTTS()
+      .then(function(blob) {
+        // 检查是否已被取消
+        if (currentBtn !== btn) return;
+        var audioUrl = URL.createObjectURL(blob);
+        // 存入内存缓存
+        audioCache[cacheKey] = { blobUrl: audioUrl, blob: blob };
+        // 持久化到 IndexedDB
+        saveAudioToDB(cacheKey, blob);
+        playWithHowler(audioUrl, btn, textId, progressEl, barEl, timeEl);
+      })
+      .catch(function(err) {
+        console.warn('TTS API failed, falling back to Web Speech API:', err);
+        if (currentBtn !== btn) return;
+        if (timeEl) timeEl.textContent = '使用浏览器语音...';
+        playWithWebSpeech(text, btn, textId, progressEl, barEl, timeEl);
+      });
     });
   };
 
