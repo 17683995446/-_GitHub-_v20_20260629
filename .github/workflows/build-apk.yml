@@ -80,8 +80,8 @@ jobs:
       - name: Allow cleartext HTTP traffic
         working-directory: apk-build
         run: |
-          mkdir -p android/app/src/main/xml
-          cat > android/app/src/main/xml/network_security_config.xml << 'XMLEOF'
+          mkdir -p android/app/src/main/res/xml
+          cat > android/app/src/main/res/xml/network_security_config.xml << 'XMLEOF'
           <?xml version="1.0" encoding="utf-8"?>
           <network-security-config>
               <base-config cleartextTrafficPermitted="true">
