@@ -629,6 +629,9 @@ textarea.form-control { resize: vertical; min-height: 80px; }
       <div class="nav-item" onclick="showPage('howto', this)">
         <span class="nav-icon">&#128161;</span> 使用指南
       </div>
+      <div class="nav-item" onclick="showPage('settings', this)">
+        <span class="nav-icon">&#9881;&#65039;</span> 系统设置
+      </div>
     </nav>
     <div class="sidebar-footer">
       <span class="status-dot" id="apiStatusDot"></span>
@@ -863,7 +866,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
         <div style="margin-bottom:24px;">
           <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第一步：配置 API Key</h5>
-          <p style="font-size:14px; color:var(--muted); margin-bottom:8px;">在下方填入 SiliconFlow API Key（必填）和 GitHub Token（选填），点击保存。配置后 APK 可独立运行，无需后端服务器。</p>
+          <p style="font-size:14px; color:var(--muted); margin-bottom:8px;">在「系统设置」页面填入 SiliconFlow API Key（必填）和 GitHub Token（选填），点击保存。配置后 APK 可独立运行，无需后端服务器。</p>
         </div>
 
         <div style="margin-bottom:24px;">
@@ -897,56 +900,137 @@ textarea.form-control { resize: vertical; min-height: 80px; }
       </div>
     </div>
 
-    <!-- ===== API Key 配置（自包含模式） ===== -->
-    <div class="form-card" id="apiKeyConfigCard" style="margin-top:24px;">
-      <h3 style="font-family:'InstrumentSans',sans-serif; font-size:18px; font-weight:700; margin-bottom:16px;">&#128273; API Key 配置</h3>
-      <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置 API Key 后，APK 可独立运行，无需后端服务器。所有请求直接发送到 GitHub 和 SiliconFlow。</p>
+    <!-- ===== 系统设置 Page ===== -->
+    <div class="page" id="page-settings">
+      <h3 class="section-title">系统设置</h3>
 
-      <div style="margin-bottom:16px;">
-        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">SiliconFlow API Key（必填，用于文章生成和语音合成）</label>
-        <input type="password" id="llmApiKeyInput" class="form-control" placeholder="sk_xxxxxxxxxxxxxxxx" style="width:100%;">
-        <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent2);">cloud.siliconflow.cn</a></p>
+      <!-- API Key 配置 -->
+      <div class="form-card" id="apiKeyConfigCard">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:16px;">&#128273; API Key 配置</h4>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:16px;">配置 API Key 后，APK 可独立运行，无需后端服务器。所有请求直接发送到 GitHub 和 SiliconFlow。</p>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">SiliconFlow API Key（必填，用于文章生成和语音合成）</label>
+          <input type="password" id="llmApiKeyInput" class="form-control" placeholder="sk_xxxxxxxxxxxxxxxx" style="width:100%;">
+          <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://cloud.siliconflow.cn" target="_blank" style="color:var(--accent2);">cloud.siliconflow.cn</a></p>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">GitHub Token（选填，不填限每小时 60 次请求）</label>
+          <input type="password" id="githubTokenInput" class="form-control" placeholder="ghp_xxxxxxxxxxxxxxxx" style="width:100%;">
+          <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://github.com/settings/tokens/new?scopes=public_repo" target="_blank" style="color:var(--accent2);">github.com/settings/tokens</a></p>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">LLM API 地址（选填，默认 SiliconFlow）</label>
+          <input type="text" id="llmApiBaseInput" class="form-control" placeholder="https://api.siliconflow.cn/v1" style="width:100%;">
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">模型名称（选填，默认 Qwen2.5-72B）</label>
+          <input type="text" id="llmModelInput" class="form-control" placeholder="Qwen/Qwen2.5-72B-Instruct" style="width:100%;">
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="saveApiKeys()" style="padding:10px 24px;">&#128190; 保存配置</button>
+          <button class="btn btn-secondary" onclick="testApiKeys()" style="padding:10px 24px;">&#9889; 测试连接</button>
+        </div>
+        <div id="apiKeyTestResult" style="margin-top:12px; font-size:13px;"></div>
       </div>
 
-      <div style="margin-bottom:16px;">
-        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">GitHub Token（选填，不填限每小时 60 次请求）</label>
-        <input type="password" id="githubTokenInput" class="form-control" placeholder="ghp_xxxxxxxxxxxxxxxx" style="width:100%;">
-        <p style="font-size:12px; color:var(--muted); margin-top:4px;">获取地址：<a href="https://github.com/settings/tokens/new?scopes=public_repo" target="_blank" style="color:var(--accent2);">github.com/settings/tokens</a></p>
+      <!-- 运行模式 -->
+      <div class="form-card" style="margin-top:24px;">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#128268; 运行模式</h4>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+            <input type="radio" name="runMode" value="standalone" checked onchange="switchRunMode('standalone')">
+            <span>自包含模式（APK 推荐，无需服务器）</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
+            <input type="radio" name="runMode" value="server" onchange="switchRunMode('server')">
+            <span>服务器模式（连接后端）</span>
+          </label>
+        </div>
+        <div id="serverUrlConfig" style="display:none; margin-top:16px;">
+          <input type="text" id="serverUrlInput" class="form-control" placeholder="http://电脑IP:8000" style="width:100%;">
+          <button class="btn btn-secondary" onclick="saveServerUrl()" style="margin-top:8px;">保存服务器地址</button>
+        </div>
       </div>
 
-      <div style="margin-bottom:16px;">
-        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">LLM API 地址（选填，默认 SiliconFlow）</label>
-        <input type="text" id="llmApiBaseInput" class="form-control" placeholder="https://api.siliconflow.cn/v1" style="width:100%;">
+      <!-- 语音设置 -->
+      <div class="form-card" style="margin-top:24px;">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#127908; 语音设置</h4>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">默认音色</label>
+          <select id="settingsVoiceSelect" class="form-control" style="width:100%; padding:8px 12px;">
+            <option value="alex">沉稳男声（阿明推荐）</option>
+            <option value="benjamin">低沉男声</option>
+            <option value="charles">磁性男声</option>
+            <option value="david">欢快男声</option>
+            <option value="anna">沉稳女声</option>
+            <option value="bella">激情女声</option>
+            <option value="claire">温柔女声（小白推荐）</option>
+            <option value="diana">欢快女声</option>
+          </select>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">播放速度：<span id="settingsSpeedLabel">1.0x</span></label>
+          <input type="range" id="settingsSpeedSlider" min="0.5" max="2.0" step="0.1" value="1.0" style="width:100%;">
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">音量：<span id="settingsVolumeLabel">100%</span></label>
+          <input type="range" id="settingsVolumeSlider" min="0" max="100" step="5" value="100" style="width:100%;">
+        </div>
       </div>
 
-      <div style="margin-bottom:16px;">
-        <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">模型名称（选填，默认 Qwen2.5-72B）</label>
-        <input type="text" id="llmModelInput" class="form-control" placeholder="Qwen/Qwen2.5-72B-Instruct" style="width:100%;">
+      <!-- 生成设置 -->
+      <div class="form-card" style="margin-top:24px;">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#9889; 生成设置</h4>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">默认生成数量</label>
+          <select id="settingsDefaultCount" class="form-control" style="width:100%; padding:8px 12px;">
+            <option value="3">3 篇</option>
+            <option value="5" selected>5 篇</option>
+            <option value="10">10 篇</option>
+            <option value="20">20 篇</option>
+          </select>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px; color:var(--muted); margin-bottom:6px; display:block;">并发数（同时生成文章数）</label>
+          <select id="settingsConcurrency" class="form-control" style="width:100%; padding:8px 12px;">
+            <option value="1">1（最稳定）</option>
+            <option value="2">2（平衡）</option>
+            <option value="3" selected>3（快速，推荐）</option>
+            <option value="5">5（最快，可能限流）</option>
+          </select>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px;">
+            <input type="checkbox" id="settingsAutoTTS" checked>
+            <span>文章生成后自动合成语音</span>
+          </label>
+        </div>
       </div>
 
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button class="btn btn-primary" onclick="saveApiKeys()" style="padding:10px 24px;">&#128190; 保存配置</button>
-        <button class="btn btn-secondary" onclick="testApiKeys()" style="padding:10px 24px;">&#9889; 测试连接</button>
+      <!-- 数据管理 -->
+      <div class="form-card" style="margin-top:24px;">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#128190; 数据管理</h4>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
+          <button class="btn btn-secondary" onclick="exportData()" style="padding:8px 16px;">&#128229; 导出所有数据</button>
+          <button class="btn btn-secondary" onclick="clearAudioCache()" style="padding:8px 16px;">&#128465; 清除音频缓存</button>
+          <button class="btn btn-secondary" onclick="clearHistory()" style="padding:8px 16px; color:var(--danger);">&#128465; 清除所有历史</button>
+        </div>
+        <div id="dataStats" style="font-size:13px; color:var(--muted);">
+          <p>文章数: <span id="dataStatArticles">0</span> | 音频缓存: <span id="dataStatAudio">0</span> 条</p>
+        </div>
       </div>
-      <div id="apiKeyTestResult" style="margin-top:12px; font-size:13px;"></div>
-    </div>
 
-    <!-- ===== 模式切换 ===== -->
-    <div class="form-card" style="margin-top:24px;">
-      <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#128268; 运行模式</h4>
-      <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
-          <input type="radio" name="runMode" value="standalone" checked onchange="switchRunMode('standalone')">
-          <span>自包含模式（APK 推荐，无需服务器）</span>
-        </label>
-        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:14px;">
-          <input type="radio" name="runMode" value="server" onchange="switchRunMode('server')">
-          <span>服务器模式（连接后端）</span>
-        </label>
-      </div>
-      <div id="serverUrlConfig" style="display:none; margin-top:16px;">
-        <input type="text" id="serverUrlInput" class="form-control" placeholder="http://电脑IP:8000" style="width:100%;">
-        <button class="btn btn-secondary" onclick="saveServerUrl()" style="margin-top:8px;">保存服务器地址</button>
+      <!-- 关于 -->
+      <div class="form-card" style="margin-top:24px;">
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:12px;">&#8505;&#65039; 关于</h4>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:8px;">GitCast v32 - GitHub 项目播客工厂</p>
+        <p style="font-size:13px; color:var(--muted); margin-bottom:8px;">自动发现 GitHub 热门项目，用 Tree-sitter AST 分析源代码，AI 生成两人对话式播客，双声音 TTS 合成。</p>
+        <p style="font-size:13px; color:var(--muted);">技术栈: Qwen2.5-72B LLM + CosyVoice2 TTS + Tree-sitter WASM + IndexedDB</p>
       </div>
     </div>
 
@@ -969,6 +1053,9 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   </div>
   <div class="mobile-nav-item" onclick="showPage('howto', this)">
     <span class="mn-icon">&#128161;</span>指南
+  </div>
+  <div class="mobile-nav-item" onclick="showPage('settings', this)">
+    <span class="mn-icon">&#9881;&#65039;</span>设置
   </div>
 </nav>
 
@@ -993,6 +1080,6 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 <script src="./_shared/js/howler.min.js"></script>
 <script src="assets/tree-sitter-analyzer.js?v=1"></script>
 <script src="assets/gitcast-engine.js?v=5"></script>
-<script src="assets/app.js?v=32"></script>
+<script src="assets/app.js?v=33"></script>
 </body>
 </html>

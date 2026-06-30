@@ -1693,6 +1693,161 @@
     showToast('已切换到' + (mode === 'standalone' ? '自包含模式' : '服务器模式'), 'info');
   };
 
+  // ===== 设置页面功能 =====
+  // 初始化设置页面的值
+  function initSettingsPage() {
+    // 语音设置
+    try {
+      var savedVoice = localStorage.getItem('gc_default_voice') || 'alex';
+      var savedSpeed = localStorage.getItem('gc_playback_rate') || '1.0';
+      var savedVolume = localStorage.getItem('gc_volume') || '100';
+      var vSelect = document.getElementById('settingsVoiceSelect');
+      var sSlider = document.getElementById('settingsSpeedSlider');
+      var volSlider = document.getElementById('settingsVolumeSlider');
+      if (vSelect) vSelect.value = savedVoice;
+      if (sSlider) {
+        sSlider.value = savedSpeed;
+        var sLabel = document.getElementById('settingsSpeedLabel');
+        if (sLabel) sLabel.textContent = parseFloat(savedSpeed).toFixed(1) + 'x';
+      }
+      if (volSlider) {
+        volSlider.value = savedVolume;
+        var volLabel = document.getElementById('settingsVolumeLabel');
+        if (volLabel) volLabel.textContent = savedVolume + '%';
+      }
+    } catch(e) {}
+
+    // 生成设置
+    try {
+      var savedCount = localStorage.getItem('gc_default_count') || '5';
+      var savedConc = localStorage.getItem('gc_concurrency') || '3';
+      var autoTTS = localStorage.getItem('gc_auto_tts');
+      var cSelect = document.getElementById('settingsDefaultCount');
+      var concSelect = document.getElementById('settingsConcurrency');
+      var ttsCheck = document.getElementById('settingsAutoTTS');
+      if (cSelect) cSelect.value = savedCount;
+      if (concSelect) concSelect.value = savedConc;
+      if (ttsCheck) ttsCheck.checked = autoTTS !== 'false';
+    } catch(e) {}
+
+    // 数据统计
+    updateDataStats();
+  }
+
+  // 设置页面的滑块事件
+  function bindSettingsEvents() {
+    var sSlider = document.getElementById('settingsSpeedSlider');
+    if (sSlider) {
+      sSlider.addEventListener('input', function() {
+        var label = document.getElementById('settingsSpeedLabel');
+        if (label) label.textContent = parseFloat(this.value).toFixed(1) + 'x';
+        playbackRate = parseFloat(this.value);
+        try { localStorage.setItem('gc_playback_rate', this.value); } catch(e) {}
+      });
+    }
+    var volSlider = document.getElementById('settingsVolumeSlider');
+    if (volSlider) {
+      volSlider.addEventListener('input', function() {
+        var label = document.getElementById('settingsVolumeLabel');
+        if (label) label.textContent = this.value + '%';
+        try { localStorage.setItem('gc_volume', this.value); } catch(e) {}
+        if (window.currentHowl) window.currentHowl.volume(this.value / 100);
+      });
+    }
+    var vSelect = document.getElementById('settingsVoiceSelect');
+    if (vSelect) {
+      vSelect.addEventListener('change', function() {
+        selectedVoice = this.value;
+        try { localStorage.setItem('gc_default_voice', this.value); } catch(e) {}
+        showToast('默认音色已设置为：' + (GitCastEngine.VOICES[this.value] ? GitCastEngine.VOICES[this.value].name : this.value), 'success');
+      });
+    }
+    var cSelect = document.getElementById('settingsDefaultCount');
+    if (cSelect) {
+      cSelect.addEventListener('change', function() {
+        try { localStorage.setItem('gc_default_count', this.value); } catch(e) {}
+      });
+    }
+    var concSelect = document.getElementById('settingsConcurrency');
+    if (concSelect) {
+      concSelect.addEventListener('change', function() {
+        try { localStorage.setItem('gc_concurrency', this.value); } catch(e) {}
+      });
+    }
+    var ttsCheck = document.getElementById('settingsAutoTTS');
+    if (ttsCheck) {
+      ttsCheck.addEventListener('change', function() {
+        try { localStorage.setItem('gc_auto_tts', this.checked); } catch(e) {}
+      });
+    }
+  }
+
+  // 更新数据统计
+  function updateDataStats() {
+    var articleEl = document.getElementById('dataStatArticles');
+    var audioEl = document.getElementById('dataStatAudio');
+    if (articleEl) articleEl.textContent = generatedArticles.length;
+    if (audioEl) audioEl.textContent = Object.keys(audioCache).length;
+  }
+
+  // 导出数据
+  window.exportData = function() {
+    var data = {
+      articles: generatedArticles,
+      stats: totalStats,
+      exportTime: new Date().toISOString(),
+      version: 'v32'
+    };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'gitcast-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('数据已导出', 'success');
+  };
+
+  // 清除音频缓存
+  window.clearAudioCache = function() {
+    if (!confirm('确定清除所有音频缓存？此操作不可撤销。')) return;
+    audioCache = {};
+    if (audioDb) {
+      try {
+        var tx = audioDb.transaction([AUDIO_STORE], 'readwrite');
+        tx.objectStore(AUDIO_STORE).clear();
+      } catch(e) {}
+    }
+    updateDataStats();
+    showToast('音频缓存已清除', 'success');
+  };
+
+  // 清除所有历史
+  window.clearHistory = function() {
+    if (!confirm('确定清除所有历史数据？包括文章、音频、统计数据。此操作不可撤销！')) return;
+    generatedArticles = [];
+    totalStats = { articles: 0, audio: 0, projects: 0, published: 0 };
+    audioCache = {};
+    if (audioDb) {
+      try {
+        var tx = audioDb.transaction([AUDIO_STORE], 'readwrite');
+        tx.objectStore(AUDIO_STORE).clear();
+      } catch(e) {}
+    }
+    try { localStorage.removeItem('gitcast_articles'); } catch(e) {}
+    try { localStorage.removeItem('gitcast_stats'); } catch(e) {}
+    updateStats();
+    renderRecentPodcasts();
+    updateDataStats();
+    showToast('所有历史已清除', 'success');
+  };
+
+  // 初始化设置页面（延迟绑定，等 DOM 就绪）
+  setTimeout(function() {
+    initSettingsPage();
+    bindSettingsEvents();
+  }, 100);
+
   window.saveApiKeys = function() {
     var keys = {
       llmApiKey: document.getElementById('llmApiKeyInput').value.trim(),
