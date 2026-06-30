@@ -579,8 +579,57 @@
       }
     }
 
-    // 核心代码片段
+    // 核心代码片段 + AST 结构分析
     if (codeSnippets.length > 0) {
+      // 尝试用 tree-sitter 做 AST 分析
+      var astSummaries = [];
+      var hasAST = false;
+
+      try {
+        if (typeof TreeSitterAnalyzer !== 'undefined') {
+          await TreeSitterAnalyzer.init();
+          if (TreeSitterAnalyzer.isAvailable()) {
+            hasAST = true;
+            if (onProgress) onProgress('正在进行 AST 代码结构分析...');
+            for (var s2 = 0; s2 < codeSnippets.length; s2++) {
+              var analysis = await TreeSitterAnalyzer.analyzeCode(
+                codeSnippets[s2].path,
+                codeSnippets[s2].content
+              );
+              if (analysis && analysis.summary) {
+                astSummaries.push({
+                  path: codeSnippets[s2].path,
+                  summary: analysis.summary,
+                  stats: {
+                    classes: analysis.classes.length,
+                    functions: analysis.functions.length,
+                    interfaces: analysis.interfaces.length,
+                    structs: analysis.structs.length,
+                    traits: analysis.traits.length
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch(e) {
+        console.warn('[engine] AST analysis failed, using raw code:', e.message);
+      }
+
+      // 构建 AST 结构地图（如果有）
+      if (astSummaries.length > 0) {
+        contextParts.push('=== 代码结构 AST 分析（基于 Tree-sitter 真实解析）===');
+        for (var a = 0; a < astSummaries.length; a++) {
+          var as = astSummaries[a];
+          contextParts.push('【文件: ' + as.path + '】');
+          contextParts.push(as.summary);
+          contextParts.push('');
+        }
+        contextParts.push('=== AST 结构分析结束 ===');
+        contextParts.push('');
+      }
+
+      // 保留原始代码片段（截取关键部分）
       contextParts.push('=== 核心源代码（智能选取的 ' + codeSnippets.length + ' 个关键文件）===');
       for (var s = 0; s < codeSnippets.length; s++) {
         contextParts.push('【文件: ' + codeSnippets[s].path + '】');
