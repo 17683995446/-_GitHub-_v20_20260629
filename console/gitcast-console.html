@@ -859,31 +859,16 @@ textarea.form-control { resize: vertical; min-height: 80px; }
       <h3 class="section-title">使用指南</h3>
 
       <div class="form-card">
-        <h4 style="font-size:16px; font-weight:700; margin-bottom:16px;">三步开始使用</h4>
+        <h4 style="font-size:16px; font-weight:700; margin-bottom:16px;">快速开始</h4>
 
         <div style="margin-bottom:24px;">
-          <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第一步：配置环境变量</h5>
-          <p style="font-size:14px; color:var(--muted); margin-bottom:8px;">在项目根目录创建 <code>.env</code> 文件，填入你的 API Key：</p>
-          <div style="background:var(--bg); border:1px solid var(--rule); border-radius:8px; padding:16px; font-family:'JetBrainsMono',monospace; font-size:13px; line-height:1.8; color:var(--muted); overflow-x:auto;">
-GITHUB_TOKEN=你的GitHub Token<br>
-LLM_API_KEY=你的SiliconFlow API Key<br>
-AZURE_SPEECH_KEY=你的Azure语音Key<br>
-ENABLED_PUBLISHERS=ximalaya,xiaoyuzhou,wechat
-          </div>
+          <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第一步：配置 API Key</h5>
+          <p style="font-size:14px; color:var(--muted); margin-bottom:8px;">在下方填入 SiliconFlow API Key（必填）和 GitHub Token（选填），点击保存。配置后 APK 可独立运行，无需后端服务器。</p>
         </div>
 
         <div style="margin-bottom:24px;">
-          <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第二步：启动服务</h5>
-          <div style="background:var(--bg); border:1px solid var(--rule); border-radius:8px; padding:16px; font-family:'JetBrainsMono',monospace; font-size:13px; line-height:1.8; color:var(--muted); overflow-x:auto;">
-docker-compose up -d<br>
-docker-compose exec api alembic upgrade head
-          </div>
-          <p style="font-size:13px; color:var(--muted); margin-top:8px;">等待全部 6 个服务启动完成（API、数据库、Redis、n8n、监控）。</p>
-        </div>
-
-        <div style="margin-bottom:24px;">
-          <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第三步：生成内容</h5>
-          <p style="font-size:14px; color:var(--muted);">点击左侧「生成内容」，选择语言，点击「开始生成」即可。也可以设置每天自动执行。</p>
+          <h5 style="color:var(--accent); font-size:14px; margin-bottom:8px;">第二步：生成播客</h5>
+          <p style="font-size:14px; color:var(--muted);">点击左侧「生成内容」，选择编程语言，点击「开始生成」。系统会自动发现 GitHub 热门项目，分析源代码，生成两人对话式播客脚本，合成双声音语音。</p>
         </div>
 
         <hr style="border:none; border-top:1px solid var(--rule); margin:24px 0;">
@@ -892,22 +877,22 @@ docker-compose exec api alembic upgrade head
 
         <div style="margin-bottom:16px;">
           <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 需要哪些 API Key？</h5>
-          <p style="font-size:13px; color:var(--muted);">GitHub Token（免费）、SiliconFlow API Key（LLM 大模型）、Azure Speech Key（语音合成）、各发布平台的开发者凭据。</p>
+          <p style="font-size:13px; color:var(--muted);">只需要 SiliconFlow API Key（用于文章生成和语音合成）。GitHub Token 选填，不填限每小时 60 次请求。</p>
         </div>
 
         <div style="margin-bottom:16px;">
-          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 一条内容从生成到发布要多久？</h5>
-          <p style="font-size:13px; color:var(--muted);">单个项目约 3-5 分钟（发现+生成文章+合成音频+发布），一次处理 5 个项目约 15-25 分钟。</p>
+          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 一条内容从生成到合成音频要多久？</h5>
+          <p style="font-size:13px; color:var(--muted);">单个项目约 2-4 分钟（发现+下载源码+AST分析+AI生成文章+TTS语音合成），一次处理 5 个项目约 10-20 分钟。</p>
         </div>
 
         <div style="margin-bottom:16px;">
-          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 可以定时自动执行吗？</h5>
-          <p style="font-size:13px; color:var(--muted);">可以。通过 n8n 工作流或 GitHub Actions 设置每天定时触发，无需手动操作。</p>
+          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 播客是什么形式？</h5>
+          <p style="font-size:13px; color:var(--muted);">两人对话式播客。阿明（技术达人，男声）和小白（科技爱好者，女声）交替对话，基于项目源代码深度分析技术细节，通俗易懂。</p>
         </div>
 
         <div>
-          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 生成的文章质量如何？</h5>
-          <p style="font-size:13px; color:var(--muted);">使用 Qwen2.5-72B 大模型生成，根据项目 star 数自动调整文章长度（小项目800字，中项目1200字，大项目1500字），语言通俗适合播客收听。</p>
+          <h5 style="font-size:14px; font-weight:700; margin-bottom:4px;">Q: 技术分析深度如何？</h5>
+          <p style="font-size:13px; color:var(--muted);">使用 Tree-sitter AST 解析项目核心源代码，提取函数签名、类结构、接口定义。AI 基于 5 个维度分析：架构设计、核心算法、性能工程、技术选型、创新点。</p>
         </div>
       </div>
     </div>
